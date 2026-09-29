@@ -15,6 +15,8 @@ vi.mock('./toastStore', () => ({
 }));
 
 import { AIAssistant, ASSISTANT_ANIMATION_VARIANTS, REDUCED_MOTION_VARIANTS, AnimationVariants } from './aiAssistant';
+import type { AIAnalysisResult } from '@/types';
+import type { ChatMessage } from '@/types';
 import type { ChatMessage, AIAnalysisResult } from '@/types';
 
 // ---------- Helpers ----------
@@ -385,7 +387,8 @@ describe('aiAssistant framer-motion animation', () => {
       for (const intent of intents) {
         const analysis = makeAnalysis(intent);
         const result = AIAssistant.getAnimationVariants(analysis);
-        expect(result).toEqual(ASSISTANT_ANIMATION_VARIANTS[intent]);
+        // Cast needed because TS can't narrow Record key from AIAnalysisResult['intent']
+        expect(result).toEqual((ASSISTANT_ANIMATION_VARIANTS as Record<string, AnimationVariants>)[intent]);
       }
     });
 

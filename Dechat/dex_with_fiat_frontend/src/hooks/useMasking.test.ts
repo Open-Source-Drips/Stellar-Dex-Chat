@@ -191,7 +191,7 @@ describe('useMasking', () => {
         {
           initialProps: {
             text: 'Hello',
-            options: { enabled: true, style: 'asterisk' as const },
+            options: { enabled: true, style: 'asterisk' as import('@/lib/textMasking').MaskingStyle },
           },
         },
       );

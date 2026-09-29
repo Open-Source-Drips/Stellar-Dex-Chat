@@ -6,6 +6,50 @@ import AuditTable from '../AuditTable';
 import { toastStore } from '@/lib/toastStore';
 
 // ---------------------------------------------------------------------------
+// useOnlineStatus mock – event-driven, avoids real network calls
+// ---------------------------------------------------------------------------
+const { onlineStore } = vi.hoisted(() => ({
+  onlineStore: { isOnline: true, wasOffline: false },
+}));
+const _ONLINE_EVT = '__online_status_change__';
+
+vi.mock('@/hooks/useOnlineStatus', async () => {
+  const { useState, useEffect, useCallback } = await import('react');
+  return {
+    useOnlineStatus: () => {
+      const [snap, setSnap] = useState({
+        isOnline: onlineStore.isOnline,
+        wasOffline: onlineStore.wasOffline,
+      });
+      useEffect(() => {
+        const h = () =>
+          setSnap({ isOnline: onlineStore.isOnline, wasOffline: onlineStore.wasOffline });
+        window.addEventListener(_ONLINE_EVT, h);
+        return () => window.removeEventListener(_ONLINE_EVT, h);
+      }, []);
+      return {
+        ...snap,
+        resetWasOffline: useCallback(() => {
+          onlineStore.wasOffline = false;
+          setSnap(s => ({ ...s, wasOffline: false }));
+        }, []),
+      };
+    },
+  };
+});
+
+function setOnlineStatus(isOnline: boolean) {
+  const { act } = require('@testing-library/react');
+  act(() => {
+    if (!isOnline) onlineStore.wasOffline = true;
+    onlineStore.isOnline = isOnline;
+    window.dispatchEvent(new Event(_ONLINE_EVT));
+  });
+}
+
+
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -36,6 +80,8 @@ describe('AuditTable', () => {
     cleanup();
     toastStore.clearToasts();
     vi.restoreAllMocks();
+    onlineStore.isOnline = true;
+    onlineStore.wasOffline = false;
   });
 
   // ── Original tests (must remain passing) ────────────────────────────────
@@ -138,10 +184,12 @@ describe('AuditTable', () => {
   });
 
   it('shows a warning toast when the browser goes offline while open', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => makeSuccessResponse()));
     const addToastSpy = vi.spyOn(toastStore, 'addToast');
     render(React.createElement(AuditTable));
+    await waitFor(() => expect(screen.getByText('real-row')).toBeInTheDocument());
 
-    fireEvent(window, new Event('offline'));
+    setOnlineStatus(false);
 
     await waitFor(() => {
       expect(addToastSpy).toHaveBeenCalledWith(
@@ -149,19 +197,22 @@ describe('AuditTable', () => {
           severity: 'warning',
           message: expect.stringMatching(/offline/i),
         }),
+        undefined,
       );
     });
   });
 
   it('shows a success toast when coming back online after offline', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => makeSuccessResponse()));
     const addToastSpy = vi.spyOn(toastStore, 'addToast');
     render(React.createElement(AuditTable));
+    await waitFor(() => expect(screen.getByText('real-row')).toBeInTheDocument());
 
-    fireEvent(window, new Event('offline'));
+    setOnlineStatus(false);
     await waitFor(() => expect(addToastSpy).toHaveBeenCalled());
 
     addToastSpy.mockClear();
-    fireEvent(window, new Event('online'));
+    setOnlineStatus(true);
 
     await waitFor(() => {
       expect(addToastSpy).toHaveBeenCalledWith(
@@ -169,6 +220,7 @@ describe('AuditTable', () => {
           severity: 'success',
           message: expect.stringMatching(/online|refresh/i),
         }),
+        undefined,
       );
     });
   });

@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
+vi.mock('server-only', () => ({}));
+
 vi.mock('@/lib/telemetry', () => ({
   telemetry: {
     extractTraceFromHeaders: () => ({ traceId: 'trace', spanId: 'parent' }),

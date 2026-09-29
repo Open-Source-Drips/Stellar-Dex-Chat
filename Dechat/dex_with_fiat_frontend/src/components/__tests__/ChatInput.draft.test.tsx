@@ -45,6 +45,7 @@ describe('ChatInput - Draft Persistence', () => {
   });
 
   it('should restore draft from draftUtils on mount', () => {
+    (draftUtils.getDraft as Mock<() => string>).mockReturnValue('Restored draft content');
     (draftUtils.getDraft as Mock).mockReturnValue('Restored draft content');
     
     render(<ChatInput {...defaultProps} />);
@@ -75,6 +76,7 @@ describe('ChatInput - Draft Persistence', () => {
   });
 
   it('should clear draft on successful send', async () => {
+    (draftUtils.getDraft as Mock<() => string>).mockReturnValue('Message to send');
     (draftUtils.getDraft as Mock).mockReturnValue('Message to send');
     render(<ChatInput {...defaultProps} />);
 
@@ -106,6 +108,7 @@ describe('ChatInput - Draft Persistence', () => {
     unmount();
 
     // Mock getDraft to return the saved value for the next mount
+    (draftUtils.getDraft as Mock<() => string>).mockReturnValue('Persistent message');
     (draftUtils.getDraft as Mock).mockReturnValue('Persistent message');
 
     // Remount

@@ -159,7 +159,11 @@ describe('useFeatureFlag – flag argument changes', () => {
     >(
       ({ flag }: { flag: 'enableAdminReconciliation' | 'enableConversionReminders' }) =>
         useFeatureFlag(flag),
-      { initialProps: { flag: 'enableAdminReconciliation' as const } }
+      {
+        initialProps: {
+          flag: 'enableAdminReconciliation' as 'enableAdminReconciliation' | 'enableConversionReminders',
+        },
+      }
     );
 
     expect(result.current).toBe(false);
@@ -178,7 +182,11 @@ describe('useFeatureFlag – flag argument changes', () => {
     >(
       ({ flag }: { flag: 'enableAdminReconciliation' | 'enableConversionReminders' }) =>
         useFeatureFlag(flag),
-      { initialProps: { flag: 'enableAdminReconciliation' as const } }
+      {
+        initialProps: {
+          flag: 'enableAdminReconciliation' as 'enableAdminReconciliation' | 'enableConversionReminders',
+        },
+      }
     );
 
     rerender({ flag: 'enableConversionReminders' });

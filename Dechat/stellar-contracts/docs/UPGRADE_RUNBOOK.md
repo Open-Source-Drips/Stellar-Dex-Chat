@@ -61,17 +61,32 @@ Complete **every** item before proposing an upgrade.
 
 ```bash
 # From the stellar-contracts directory.
-# `stellar contract build` compiles for the wasm32v1-none target and optimises
-# the artifact in one step (`--optimize` defaults to true).
+# Builds for wasm32v1-none and emits the optimized contract artifact.
 stellar contract build
 
 # Compute the SHA-256 hash of the optimised WASM
-shasum -a 256 target/wasm32v1-none/release/stellar_contracts.optimized.wasm
+WASM_FILE=target/wasm32v1-none/release/stellar_contracts.optimized.wasm
+sha256sum "$WASM_FILE"
 ```
 
 Record the hash — you will need it for `propose_upgrade`.
 
-### 2. Review the Contract Diff
+### 2. Upload the New WASM
+
+Install the optimized WASM on the target network before proposing the upgrade.
+Use the same source account and network settings as the subsequent invocations;
+confirm that the hash returned by the CLI matches the local SHA-256 above.
+
+```bash
+stellar contract install \
+  --wasm "$WASM_FILE" \
+  --source-account "$ADMIN_SECRET" \
+  --network "$NETWORK" \
+  --network-passphrase "$NETWORK_PASSPHRASE" \
+  --rpc-url "$RPC_URL"
+```
+
+### 3. Review the Contract Diff
 
 ```bash
 git diff HEAD~1 HEAD -- src/
@@ -86,7 +101,7 @@ Confirm that:
 - The `new_version` constant in `lib.rs` is greater than the currently deployed version.
 - Any storage layout changes ship with a migration path.
 
-### 3. Run the Full Test Suite
+### 4. Run the Full Test Suite
 
 ```bash
 cargo test
@@ -94,7 +109,7 @@ cargo test
 
 All tests must pass before proceeding.
 
-### 4. Snapshot Current Contract State
+### 5. Snapshot Current Contract State
 
 Use the Stellar CLI (`stellar`) to record the current on-chain values that must survive the upgrade:
 
@@ -122,7 +137,7 @@ stellar contract invoke \
 
 Save the output — compare it against post-upgrade values to confirm no state was lost.
 
-### 5. Confirm No Active Pending Withdrawals at Risk
+### 6. Confirm No Active Pending Withdrawals at Risk
 
 ```bash
 stellar contract invoke \
@@ -193,7 +208,7 @@ stellar contract invoke \
 
 ### Step 3 — Execute the Upgrade
 
-Once `current_ledger > executable_after`:
+Once `current_ledger >= executable_after`:
 
 ```bash
 stellar contract invoke \
@@ -306,7 +321,8 @@ If the new WASM is already live and must be reverted:
    ```bash
    git checkout <previous-release-tag>
    stellar contract build
-   shasum -a 256 target/wasm32v1-none/release/stellar_contracts.optimized.wasm
+  WASM_FILE=target/wasm32v1-none/release/stellar_contracts.optimized.wasm
+  sha256sum "$WASM_FILE"
    ```
 
 2. **Pause the contract** (optional but recommended to prevent user funds being affected

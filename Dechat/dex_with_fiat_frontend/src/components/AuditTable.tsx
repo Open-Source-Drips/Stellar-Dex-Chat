@@ -98,7 +98,10 @@ export default function AuditTable({}: AuditTableProps) {
 
       const data = await withNetworkReadQueue(
         async () => {
-          const response = await fetch(url, { signal });
+          const response = await fetch(url, {
+            signal,
+            credentials: 'include',
+          });
           if (!response.ok) {
             throw new Error(`API error: ${response.statusText}`);
           }
@@ -212,7 +215,9 @@ export default function AuditTable({}: AuditTableProps) {
       params.append('sortKey', sortKey);
       params.append('sortOrder', sortOrder);
 
-      const response = await fetch(`/api/admin-audit?${params.toString()}`);
+      const response = await fetch(`/api/admin-audit?${params.toString()}`, {
+        credentials: 'include',
+      });
       if (!response.ok) throw new Error(`Export failed: ${response.statusText}`);
       const data = await response.json() as { entries: AuditEntry[]; total: number };
 

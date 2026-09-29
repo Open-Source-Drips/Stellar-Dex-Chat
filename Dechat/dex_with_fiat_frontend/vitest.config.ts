@@ -22,7 +22,10 @@ export default defineConfig({
     },
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json-summary'],
+      // 'blob' is required for cross-shard merging via `vitest --mergeReports`.
+      // 'json-summary' feeds the coverage-comment workflow.
+      // 'text' keeps local runs readable.
+      reporter: ['text', 'json-summary', 'blob'],
       cleanOnRerun: true,
       exclude: [
         '**/*.{test,spec}.{ts,tsx}',

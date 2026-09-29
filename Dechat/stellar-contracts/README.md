@@ -64,14 +64,14 @@ flowchart TD
 
 ```bash
 # Build
-cargo build --target wasm32-unknown-unknown --release
+stellar contract build
 
 # Test
 cargo test
 
 # Deploy (Testnet)
 stellar contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/stellar_contracts.wasm \
+    --wasm target/wasm32v1-none/release/stellar_contracts.optimized.wasm \
   --network testnet
 ```
 

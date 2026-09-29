@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
+const applyRateLimitMock: any = vi.fn(() => null);
 const applyRateLimitMock = vi.fn<(...args: unknown[]) => null>(() => null);
 
 vi.mock('@/lib/rateLimit', () => ({
-  applyRateLimit: (...args: unknown[]) => applyRateLimitMock(...args),
+  applyRateLimit: (...args: Parameters<typeof import('@/lib/rateLimit').applyRateLimit>) => applyRateLimitMock(...args),
   getClientIp: vi.fn(() => '127.0.0.1'),
 }));
 

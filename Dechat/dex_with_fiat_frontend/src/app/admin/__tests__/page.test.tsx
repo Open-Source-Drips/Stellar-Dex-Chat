@@ -34,7 +34,7 @@ const auditTableMock = vi.hoisted(() =>
 );
 
 vi.mock('@/components/AuditTable', () => ({
-  default: (...args: unknown[]) => auditTableMock(...args),
+  default: (props: { onRefresh?: () => void }) => auditTableMock(props),
 }));
 
 vi.mock('next/link', () => ({

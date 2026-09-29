@@ -36,22 +36,47 @@ export async function GET(request: NextRequest) {
   const encoder = new TextEncoder();
   let unsubscribe: (() => void) | null = null;
   let heartbeat: ReturnType<typeof setInterval> | null = null;
+  let isClosed = false;
 
   const stream = new ReadableStream({
     start(controller) {
+      // Send retry line on connect
+      controller.enqueue(encoder.encode('retry: 3000\n\n'));
       controller.enqueue(encoder.encode(': connected\n\n'));
 
       unsubscribe = subscribeToPaymentStatus(sessionId, (event) => {
-        controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
-        );
+        if (isClosed) return;
+        try {
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
+          );
+        } catch (error) {
+          // Stream is closed, ignore error
+          console.error('Failed to enqueue payment status event:', error);
+        }
       });
 
       heartbeat = setInterval(() => {
-        controller.enqueue(encoder.encode(': ping\n\n'));
+        if (isClosed) return;
+        try {
+          controller.enqueue(encoder.encode(': ping\n\n'));
+        } catch (error) {
+          // Stream is closed, ignore error
+          console.error('Failed to enqueue heartbeat:', error);
+        }
       }, 15_000);
+
+      // Listen for client disconnect via request.signal
+      request.signal.addEventListener('abort', () => {
+        isClosed = true;
+        if (heartbeat) {
+          clearInterval(heartbeat);
+        }
+        unsubscribe?.();
+      });
     },
     cancel() {
+      isClosed = true;
       if (heartbeat) {
         clearInterval(heartbeat);
       }

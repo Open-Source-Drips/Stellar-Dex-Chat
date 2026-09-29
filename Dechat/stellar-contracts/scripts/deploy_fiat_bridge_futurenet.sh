@@ -28,31 +28,20 @@ echo "   Output file: $OUTPUT_FILE"
 
 # Build the contract
 echo "📦 Building WASM contract..."
-cargo build --target wasm32-unknown-unknown --release
+stellar contract build
 
-WASM_FILE="./target/wasm32-unknown-unknown/release/stellar_contracts.wasm"
+WASM_FILE="./target/wasm32v1-none/release/stellar_contracts.optimized.wasm"
 
 if [ ! -f "$WASM_FILE" ]; then
     echo "❌ Error: WASM file not found at $WASM_FILE"
     exit 1
 fi
 
-# Get the account ID from the secret key
-echo "🔑 Deriving account ID from secret key..."
-# Note: This uses soroban CLI - ensure it's installed and configured
-ACCOUNT_ID=$(soroban keys show --secret-key "$ADMIN_SECRET_KEY" 2>/dev/null || echo "")
-
-if [ -z "$ACCOUNT_ID" ]; then
-    echo "⚠️  Could not derive account ID. Using soroban directly with key..."
-    # Soroban will use the key directly
-fi
-
 # Deploy the contract
 echo "⚙️  Deploying contract to Futurenet..."
-CONTRACT_ID=$(soroban contract deploy \
+CONTRACT_ID=$(stellar contract deploy \
     --wasm "$WASM_FILE" \
-    --source-account "$ACCOUNT_ID" \
-    --secret-key "$ADMIN_SECRET_KEY" \
+    --source-account "$ADMIN_SECRET_KEY" \
     --network "futurenet" \
     --rpc-url "$RPC_URL" \
     --network-passphrase "$NETWORK_PASSPHRASE" \

@@ -14,7 +14,7 @@ import crypto from 'crypto';
 // We mock the env module so we can swap PAYSTACK_SECRET_KEY per test.
 // ---------------------------------------------------------------------------
 const mockEnv = { PAYSTACK_SECRET_KEY: 'test-secret', PAYOUT_PROVIDER: 'paystack' } as Record<string, string | undefined>;
-vi.mock('@/lib/env', () => ({ get env() { return mockEnv; } }));
+vi.mock('@/lib/serverEnv', () => ({ get serverEnv() { return mockEnv; } }));
 vi.mock('@/lib/telemetry', () => ({
   telemetry: {
     extractTraceFromHeaders: () => ({ traceId: 'trace1', spanId: 'span1' }),

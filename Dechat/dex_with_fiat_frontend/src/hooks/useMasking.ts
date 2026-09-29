@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from 'react';
 export interface UseMaskingOptions {
   enabled: boolean;
   style?: MaskingStyle;
-  customTerms?: typeof SensitiveTermsManager;
+  customTerms?: SensitiveTermsManager;
 }
 
 /**

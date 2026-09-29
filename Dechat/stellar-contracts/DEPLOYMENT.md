@@ -12,23 +12,15 @@ The FiatBridge contract deployment process includes:
 ## Prerequisites
 
 ### Required Tools
-- **Rust** (1.70+): Install from [rustup.rs](https://rustup.rs/), then add the WASM
+- **Rust** (1.93+): Install from [rustup.rs](https://rustup.rs/), then add the WASM
   target used by the current Soroban SDK:
   ```bash
   rustup target add wasm32v1-none
   ```
-- **Stellar CLI** (`stellar`), pinned to a known release — no `curl | bash` of a
-  moving `master` branch:
+- **Stellar CLI** (`stellar`), pinned to a known release:
   ```bash
-  # Pinned prebuilt binary (Linux x86_64; change version/triple for other platforms)
-  curl -sSL -o stellar-cli.tar.gz \
-    https://github.com/stellar/stellar-cli/releases/download/v28.0.0/stellar-cli-28.0.0-x86_64-unknown-linux-gnu.tar.gz
-  tar xzf stellar-cli.tar.gz -C /usr/local/bin stellar
-  stellar --version   # stellar 28.0.0
-  ```
-  Or build the same pin from source:
-  ```bash
-  cargo install --locked stellar-cli@28.0.0 --features opt
+  cargo install --locked stellar-cli --version 28.0.0
+  stellar --version
   ```
 
 ### Futurenet Setup
@@ -116,7 +108,7 @@ Configure the following secret in GitHub repository settings:
 After deployment, verify the contract on Futurenet:
 
 ```bash
-# Check the deployed contract's interface (the old `soroban contract info` command)
+# Check the deployed contract's interface.
 stellar contract info interface \
   --contract-id "CABC1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF123456" \
   --network "futurenet" \
@@ -124,8 +116,6 @@ stellar contract info interface \
   --rpc-url "https://rpc-futurenet.stellar.org"
 
 # Inspect the contract's metadata (SDK / compiler versions, custom entries).
-# Note: the old `soroban contract instance` subcommand no longer exists; the
-# instance's WASM can be fetched with `stellar contract fetch --id <CONTRACT_ID>`.
 stellar contract info meta \
   --contract-id "CABC1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF123456" \
   --network "futurenet" \
@@ -151,9 +141,7 @@ export FUTURENET_ADMIN_SECRET_KEY="your-secret-key"
 ### Issue: `stellar: command not found`
 **Solution:** Install the pinned Stellar CLI release (see [Required Tools](#required-tools)):
 ```bash
-curl -sSL -o stellar-cli.tar.gz \
-  https://github.com/stellar/stellar-cli/releases/download/v28.0.0/stellar-cli-28.0.0-x86_64-unknown-linux-gnu.tar.gz
-tar xzf stellar-cli.tar.gz -C /usr/local/bin stellar
+cargo install --locked stellar-cli --version 28.0.0
 stellar --version
 ```
 

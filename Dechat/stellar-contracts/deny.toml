@@ -7,11 +7,10 @@ feature-depth = 1
 
 [advisories]
 ignore = [
-    # Transitive deps of soroban-sdk 25.3.0 (via soroban-env-host -> ark-*).
-    # No soroban-sdk release drops these yet; re-evaluate on the next SDK bump.
-    { id = "RUSTSEC-2024-0388", reason = "derivative is unmaintained; pulled in transitively by soroban-env-host's arkworks deps, no upstream fix available" },
-    { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained; pulled in transitively by soroban-env-host/soroban-wasmi, no upstream fix available" },
-    { crate = "spin@0.9.8", reason = "yanked version pinned transitively by soroban-wasmi via soroban-sdk 25.3.0; not a direct dependency, upgrade tracked with the next SDK bump" },
+    # Transitive dep of soroban-sdk 28.0.0 (via soroban-env-host/soroban-wasmi).
+    # No soroban-sdk release drops this yet; review-by 2026-12-28, re-evaluate
+    # on the next SDK bump or sooner if security-audit.yml flags it.
+    { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained; pulled in transitively by soroban-env-host/soroban-wasmi, no upstream fix available; review-by 2026-12-28" },
 ]
 
 [licenses]
@@ -33,7 +32,7 @@ ignore = true
 
 [bans]
 multiple-versions = "warn"
-wildcards = "allow"
+wildcards = "deny"
 highlight = "all"
 
 [sources]

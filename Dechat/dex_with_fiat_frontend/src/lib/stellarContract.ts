@@ -10,7 +10,7 @@ import {
   Horizon,
 } from '@stellar/stellar-sdk';
 import { stroopsToXlm } from '@/lib/stroops';
-import { env } from '@/lib/env';
+import { clientEnv as env } from '@/lib/clientEnv';
 
 export { stroopsToXlm as stroopsToDisplay } from '@/lib/stroops';
 

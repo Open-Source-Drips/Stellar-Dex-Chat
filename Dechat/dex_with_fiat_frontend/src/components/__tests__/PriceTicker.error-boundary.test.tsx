@@ -3,6 +3,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import ErrorBoundary from '@/components/ErrorBoundary';
 
+function ThrowingPriceTicker(): React.ReactNode {
 function ThrowingPriceTicker(): ReactNode {
   throw new Error('PriceTicker crashed');
 }

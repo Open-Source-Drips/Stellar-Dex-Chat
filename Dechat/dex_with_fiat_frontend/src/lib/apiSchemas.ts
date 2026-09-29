@@ -1,12 +1,23 @@
 import { z } from 'zod';
 
+// Nigerian NUBAN account numbers are always exactly 10 digits; Paystack bank
+// codes are 3-6 digits. Anchoring both to a strict digit pattern (rather than
+// just `min(1)`) also rules out injecting extra query parameters through
+// these fields into the Paystack request URL.
+const nubanAccountNumber = z
+  .string()
+  .regex(/^\d{10}$/, 'Account number must be exactly 10 digits');
+const paystackBankCode = z
+  .string()
+  .regex(/^\d{3,6}$/, 'Bank code must be 3-6 digits');
+
 // Schema for create-recipient endpoint
 export const createRecipientSchema = z.object({
-  type: z.string().min(1, 'Type is required'),
-  name: z.string().min(1, 'Name is required'),
-  account_number: z.string().min(1, 'Account number is required'),
-  bank_code: z.string().min(1, 'Bank code is required'),
-  currency: z.string().min(1, 'Currency is required'),
+  type: z.string().min(1, 'Type is required').max(50, 'Type is too long'),
+  name: z.string().min(1, 'Name is required').max(100, 'Name is too long'),
+  account_number: nubanAccountNumber,
+  bank_code: paystackBankCode,
+  currency: z.enum(['NGN']),
 });
 
 export type CreateRecipientInput = z.infer<typeof createRecipientSchema>;
@@ -35,8 +46,8 @@ export type InitiateTransferInput = z.infer<typeof initiateTransferSchema>;
 
 // Schema for verify-account endpoint
 export const verifyAccountSchema = z.object({
-  accountNumber: z.string().min(1, 'Account number is required'),
-  bankCode: z.string().min(1, 'Bank code is required'),
+  accountNumber: nubanAccountNumber,
+  bankCode: paystackBankCode,
 });
 
 export type VerifyAccountInput = z.infer<typeof verifyAccountSchema>;

@@ -19,13 +19,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import AuditLogService from '@/lib/auditLog';
+import { enforceAdminIpAllowlist } from '@/lib/security';
 import { AuditEntry, AuditLogFilter } from '@/types';
+import { requireAdminAuth } from '../admin/_utils/requireAdminAuth';
 
 const sortKeySchema = z.enum(['timestamp', 'actionType', 'status', 'adminAddress']);
 const sortOrderSchema = z.enum(['asc', 'desc']);
 
 export async function GET(request: NextRequest) {
   try {
+    const blockedResponse = enforceAdminIpAllowlist(request);
+    if (blockedResponse) return blockedResponse;
+
+    const authError = requireAdminAuth(request);
+    if (authError) return authError;
+
     const searchParams = request.nextUrl.searchParams;
 
     // Extract filter parameters
@@ -158,10 +166,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Error retrieving audit entries:', error);
     return NextResponse.json(
-      {
-        error: 'Failed to retrieve audit entries',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      },
+      { error: 'Failed to retrieve audit entries' },
       { status: 500 }
     );
   }

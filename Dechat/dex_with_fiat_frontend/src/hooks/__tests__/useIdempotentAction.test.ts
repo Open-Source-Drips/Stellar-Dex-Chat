@@ -299,13 +299,13 @@ describe('useIdempotentAction', () => {
 
     let results!: Array<string | null>;
     await act(async () => {
-      results = await Promise.all([
+      results = (await Promise.all([
         result.current.execute(mockAction, 'button_click'),
         result.current.execute(mockAction, 'button_click'),
         result.current.execute(mockAction, 'button_click'),
         result.current.execute(mockAction, 'button_click'),
         result.current.execute(mockAction, 'button_click'),
-      ]);
+      ])) as Array<string | null>;
     });
 
     expect(mockAction).toHaveBeenCalledTimes(1);

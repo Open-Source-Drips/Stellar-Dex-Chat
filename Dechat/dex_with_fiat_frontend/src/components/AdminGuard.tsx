@@ -4,6 +4,8 @@ import React, { useEffect, useState } from 'react';
 import { z } from 'zod';
 import { useStellarWallet } from '@/contexts/StellarWalletContext';
 import { getAdmin } from '@/lib/stellarContract';
+import { signTransaction } from '@stellar/freighter-api';
+import { TransactionBuilder, BASE_FEE, Networks, Memo, Account } from '@stellar/stellar-sdk';
 import LandingPage from '@/components/LandingPage';
 
 /** Zod schema for validating a Stellar public key (56-char G-prefixed string). */
@@ -18,13 +20,15 @@ interface AdminGuardProps {
 
 /**
  * High-order component to guard admin routes.
- * Checks if the connected wallet address matches the admin address in the smart contract.
+ * Checks if the connected wallet address matches the admin address in the smart contract
+ * and establishes a server-verified session via nonce/signature flow.
  */
 export default function AdminGuard({ children }: AdminGuardProps) {
   const { connection } = useStellarWallet();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [authenticating, setAuthenticating] = useState(false);
 
   useEffect(() => {
     async function checkAdmin() {
@@ -53,18 +57,87 @@ export default function AdminGuard({ children }: AdminGuardProps) {
           return;
         }
 
-        setIsAdmin(connectedParsed.data === adminParsed.data);
+        const isAddressMatch = connectedParsed.data === adminParsed.data;
+        
+        if (!isAddressMatch) {
+          setIsAdmin(false);
+          setLoading(false);
+          return;
+        }
+
+        // Address matches, now authenticate with server via nonce/signature
+        setAuthenticating(true);
+        
+        // Request nonce from server
+        const nonceResponse = await fetch('/api/admin/auth/nonce');
+        if (!nonceResponse.ok) {
+          throw new Error('Failed to request authentication nonce');
+        }
+        
+        const { nonce } = await nonceResponse.json();
+        
+        // Create a minimal transaction with the nonce as a memo hash
+        // We need to fetch the account sequence first
+        const accountResponse = await fetch(
+          `${connection.network?.toUpperCase() === 'PUBLIC' ? 'https://horizon.stellar.org' : 'https://horizon-testnet.stellar.org'}/accounts/${connection.address}`
+        );
+        if (!accountResponse.ok) {
+          throw new Error('Failed to fetch account details');
+        }
+        const accountData = await accountResponse.json();
+        
+        const networkPassphrase = connection.networkPassphrase || Networks.TESTNET;
+        const account = new Account(accountData.account_id, accountData.sequence);
+        
+        const transaction = new TransactionBuilder(account, {
+          fee: BASE_FEE,
+          networkPassphrase,
+        })
+          .addMemo(Memo.hash(Buffer.from(nonce, 'base64')))
+          .setTimeout(30)
+          .build();
+        
+        const xdr = transaction.toXDR();
+        
+        // Sign the transaction with Freighter
+        const signResult = await signTransaction(xdr, {
+          networkPassphrase,
+          address: connection.address,
+        });
+        
+        if (signResult.error) {
+          throw new Error(`Failed to sign: ${signResult.error}`);
+        }
+        
+        // Submit signature to server to establish session
+        const authResponse = await fetch('/api/admin/auth/nonce', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nonce,
+            signature: signResult.signedTxXdr,
+            address: connection.address,
+          }),
+        });
+        
+        if (!authResponse.ok) {
+          const errorData = await authResponse.json();
+          throw new Error(errorData.error || 'Authentication failed');
+        }
+        
+        setIsAdmin(true);
       } catch (err) {
         console.error('Failed to verify admin status:', err);
-        setError('Failed to verify admin status. Please try again.');
+        setError(err instanceof Error ? err.message : 'Failed to verify admin status. Please try again.');
         setIsAdmin(false);
       } finally {
         setLoading(false);
+        setAuthenticating(false);
       }
     }
 
     checkAdmin();
-  }, [connection.address]);
+  }, [connection.address, connection.networkPassphrase, connection.network]);
 
   if (loading) {
     return (
@@ -76,7 +149,9 @@ export default function AdminGuard({ children }: AdminGuardProps) {
             borderTopColor: 'var(--color-primary)',
           }}
         />
-        <span className="theme-text-secondary ml-3 font-medium">Verifying admin access...</span>
+        <span className="theme-text-secondary ml-3 font-medium">
+          {authenticating ? 'Authenticating admin session...' : 'Verifying admin access...'}
+        </span>
       </div>
     );
   }

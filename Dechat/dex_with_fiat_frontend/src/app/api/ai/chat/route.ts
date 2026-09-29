@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { env } from '@/lib/env';
+import { serverEnv as env } from '@/lib/serverEnv';
 import { parseMessage, mergeParserWithAI } from '@/lib/messageParser';
 import { findFAQMatch } from '@/lib/faq';
 import {

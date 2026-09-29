@@ -176,6 +176,15 @@ export default function BankDetailsModal({
   const { addNotification } = useNotifications();
   const { addEntry } = useTxHistory();
 
+  // `addNotification` is rebound on every render (see useNotifications.ts),
+  // so the status-polling effect below reads it through a ref rather than
+  // listing it as a dependency — otherwise the poll interval would be torn
+  // down and restarted on every unrelated re-render.
+  const addNotificationRef = useRef(addNotification);
+  useEffect(() => {
+    addNotificationRef.current = addNotification;
+  }, [addNotification]);
+
   const { execute: executePayoutConfirm, isProcessing: isPayoutProcessing } =
     useIdempotentAction({
       cooldownMs: 3000,
@@ -226,6 +235,7 @@ export default function BankDetailsModal({
   const [transferStatus, setTransferStatus] = useState<
     'pending' | 'success' | 'failed' | 'reversed'
   >('pending');
+  const [transferFailureReason, setTransferFailureReason] = useState('');
 
   // Transfer timeline
   const [statusEvents, setStatusEvents] = useState<StatusEvent[]>([]);
@@ -256,7 +266,8 @@ export default function BankDetailsModal({
     if (!isOpen) return;
     setBanksLoading(true);
     setBanksError('');
-    fetch('/api/banks')
+    const abortController = new AbortController();
+    fetch('/api/banks', { signal: abortController.signal })
       .then((r) => r.json())
       .then((json: { success: boolean; data: Bank[]; message?: string }) => {
         if (json.success) {
@@ -265,8 +276,16 @@ export default function BankDetailsModal({
           setBanksError(json.message ?? 'Failed to load banks');
         }
       })
-      .catch(() => setBanksError('Failed to load banks. Please try again.'))
-      .finally(() => setBanksLoading(false));
+      .catch((err: unknown) => {
+        if (err instanceof Error && err.name === 'AbortError') return;
+        setBanksError('Failed to load banks. Please try again.');
+      })
+      .finally(() => {
+        if (!abortController.signal.aborted) setBanksLoading(false);
+      });
+    return () => {
+      abortController.abort();
+    };
   }, [isOpen]);
 
   // Fetch a locked quote when the user reaches step 3
@@ -319,8 +338,29 @@ export default function BankDetailsModal({
         const res = await fetch(`/api/transfer-status/${transferReference}`);
         if (res.ok) {
           const json = await res.json();
-          if (json.success && json.data?.status) {
-            setTransferStatus(json.data.status);
+          const status = json.data?.status;
+          if (json.success && status) {
+            setTransferStatus(status);
+
+            if (status === 'success') {
+              setIsPollingStatus(false);
+              pushStatusEvent('success', 'Bank transfer confirmed');
+              addNotificationRef.current(
+                'payout_success',
+                'Fiat payout successfully completed!',
+              );
+            } else if (status === 'failed' || status === 'reversed') {
+              const failureReason: string | undefined =
+                json.data?.failureReason;
+              const suffix = failureReason ? `: ${failureReason}` : '';
+              setIsPollingStatus(false);
+              setTransferFailureReason(failureReason ?? '');
+              pushStatusEvent(status, `Transfer ${status}${suffix}`);
+              addNotificationRef.current(
+                'payout_fail',
+                `Payout ${status}${suffix}`,
+              );
+            }
           }
         }
       } catch (err) {
@@ -450,6 +490,7 @@ export default function BankDetailsModal({
       setPayoutLoading(true);
       setPayoutError('');
       setStatusEvents([]);
+      setTransferFailureReason('');
       pushStatusEvent('initiated', 'Transfer initiated');
       addNotification('payout_pending', 'Fiat payout request is pending...');
       try {
@@ -531,20 +572,15 @@ export default function BankDetailsModal({
             '',
           message: `Fiat payout initiated to ${selectedBank.name}.`,
         });
-        // Simulation block
-        await new Promise((resolve) => setTimeout(resolve, 2500));
-        setIsPollingStatus(false);
-        pushStatusEvent('success', 'Bank transfer confirmed');
+        // Move to the status step while the transfer is still pending — the
+        // polling effect above resolves success/failed/reversed once the
+        // real transfer status confirms it, rather than assuming success.
         setStep(4);
         chatTelemetry.fiatPayoutStep({
           action: 'confirm_success',
           step: 4,
           xlmAmount,
         });
-        addNotification(
-          'payout_success',
-          'Fiat payout successfully completed!',
-        );
       } catch (err) {
         const errorMsg =
           err instanceof Error
@@ -590,6 +626,7 @@ export default function BankDetailsModal({
     setPayoutNote('');
     setTransferReference('');
     setTransferStatus('pending');
+    setTransferFailureReason('');
     onClose();
   }, [step, xlmAmount, onClose]);
 
@@ -1393,7 +1430,9 @@ export default function BankDetailsModal({
                     ? 'Your bank transfer is processing. This usually takes a few minutes.'
                     : transferStatus === 'success'
                       ? 'The funds have been successfully sent to your bank account.'
-                      : 'There was an issue processing your bank transfer. Please contact support.'}
+                      : transferFailureReason
+                        ? `There was an issue processing your bank transfer: ${transferFailureReason}. Please contact support.`
+                        : 'There was an issue processing your bank transfer. Please contact support.'}
                 </p>
                 {payoutNote && (
                   <p className="theme-text-secondary text-xs mb-6">

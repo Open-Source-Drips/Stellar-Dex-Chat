@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import axios from 'axios';
 import { telemetry } from '@/lib/telemetry';
-import { env } from '@/lib/env';
+import { serverEnv as env } from '@/lib/serverEnv';
 import { banksQuerySchema } from '@/lib/apiSchemas';
 import { applyRateLimit, getClientIp } from '@/lib/rateLimit';
 

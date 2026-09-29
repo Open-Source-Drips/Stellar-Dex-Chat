@@ -3,7 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import ReceiptQrCode from '../ReceiptQrCode';
 
-let mockToDataURL: ReturnType<typeof vi.fn>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let mockToDataURL: any;
 
 vi.mock('qrcode', () => ({
   default: {

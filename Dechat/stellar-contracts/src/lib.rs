@@ -342,6 +342,12 @@ pub struct DepositEvent {
     pub token: Address,
     pub amount: i128,
     pub receipt_id: BytesN<32>,
+    /// Caller who authorised the deposit (issue #971: same as `from` here,
+    /// since deposits are always self-authorised, but named explicitly so
+    /// indexers can treat every state-changing event uniformly).
+    pub by: Address,
+    /// Ledger sequence (block height) at which the deposit was recorded (#971).
+    pub ledger: u32,
 }
 
 #[contractevent]
@@ -359,6 +365,11 @@ pub struct WithdrawEvent {
     pub to: Address,
     pub token: Address,
     pub amount: i128,
+    /// Caller who authorised the withdrawal — the admin or the configured
+    /// withdraw operator, never necessarily `to` (#971).
+    pub by: Address,
+    /// Ledger sequence (block height) at which the withdrawal was executed (#971).
+    pub ledger: u32,
 }
 
 #[contractevent]
@@ -439,6 +450,10 @@ pub struct SetLimitEvent {
     pub version: u32,
     pub token: Address,
     pub limit: i128,
+    /// Admin who changed the limit (#971).
+    pub by: Address,
+    /// Ledger sequence (block height) at which the limit was changed (#971).
+    pub ledger: u32,
 }
 
 #[contractevent]
@@ -494,6 +509,10 @@ pub struct SetOperatorEvent {
     pub active: bool,
     pub previous_active: bool,
     pub operator_count: u32,
+    /// Admin who changed the operator's status (#971).
+    pub by: Address,
+    /// Ledger sequence (block height) at which the change took effect (#971).
+    pub ledger: u32,
 }
 
 /// Emitted on every accepted `set_max_operators` call. `previous` is the cap in
@@ -1281,6 +1300,8 @@ impl FiatBridge {
             token: token.clone(),
             amount,
             receipt_id: receipt_hash.clone(),
+            by: from.clone(),
+            ledger: env.ledger().sequence(),
         }
         .publish(&env);
 
@@ -1457,6 +1478,8 @@ impl FiatBridge {
             to: to.clone(),
             token: token.clone(),
             amount,
+            by: caller.clone(),
+            ledger: env.ledger().sequence(),
         }
         .publish(&env);
         Ok(())
@@ -1991,6 +2014,8 @@ impl FiatBridge {
             version: EVENT_VERSION,
             token: token.clone(),
             limit,
+            by: admin.clone(),
+            ledger: env.ledger().sequence(),
         }
         .publish(&env);
 
@@ -2681,6 +2706,8 @@ impl FiatBridge {
             active,
             previous_active: was_active,
             operator_count: operators.len(),
+            by: admin.clone(),
+            ledger: env.ledger().sequence(),
         }
         .publish(&env);
 
@@ -5490,6 +5517,15 @@ mod test_require_admin_and_denylist;
 
 #[cfg(test)]
 mod test_withdraw_queue_helpers;
+
+#[cfg(test)]
+mod test_withdraw_invariants;
+
+#[cfg(test)]
+mod test_is_circuit_breaker_tripped_invariants;
+
+#[cfg(test)]
+mod test_withdraw_fees_batch_invariants;
 
 #[cfg(test)]
 mod test_denylist_invariants;

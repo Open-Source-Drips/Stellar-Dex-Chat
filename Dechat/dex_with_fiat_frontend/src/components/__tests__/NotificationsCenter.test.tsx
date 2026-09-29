@@ -21,6 +21,8 @@ function resetNotificationsMock() {
     markAsRead: mockMarkAsRead,
     markAllAsRead: mockMarkAllAsRead,
     clearNotifications: mockClearNotifications,
+    addNotification: mockAddNotification,
+    setNotifications: mockSetNotifications,
   }));
 }
 
@@ -33,6 +35,8 @@ vi.mock('@/hooks/useNotifications', () => ({
     markAsRead: mockMarkAsRead,
     markAllAsRead: mockMarkAllAsRead,
     clearNotifications: mockClearNotifications,
+    addNotification: mockAddNotification,
+    setNotifications: mockSetNotifications,
   })),
 }));
 
@@ -101,6 +105,8 @@ describe('NotificationsCenter – rendering', () => {
       markAsRead: mockMarkAsRead,
       markAllAsRead: mockMarkAllAsRead,
       clearNotifications: mockClearNotifications,
+      addNotification: mockAddNotification,
+      setNotifications: mockSetNotifications,
     });
 
     render(<NotificationsCenter />);
@@ -159,6 +165,8 @@ describe('NotificationsCenter – keyboard shortcuts', () => {
       markAsRead: mockMarkAsRead,
       markAllAsRead: mockMarkAllAsRead,
       clearNotifications: mockClearNotifications,
+      addNotification: mockAddNotification,
+      setNotifications: mockSetNotifications,
     });
 
     render(<NotificationsCenter />);
@@ -177,6 +185,8 @@ describe('NotificationsCenter – keyboard shortcuts', () => {
       markAsRead: mockMarkAsRead,
       markAllAsRead: mockMarkAllAsRead,
       clearNotifications: mockClearNotifications,
+      addNotification: mockAddNotification,
+      setNotifications: mockSetNotifications,
     });
 
     render(<NotificationsCenter />);
@@ -195,6 +205,8 @@ describe('NotificationsCenter – keyboard shortcuts', () => {
       markAsRead: mockMarkAsRead,
       markAllAsRead: mockMarkAllAsRead,
       clearNotifications: mockClearNotifications,
+      addNotification: mockAddNotification,
+      setNotifications: mockSetNotifications,
     });
 
     render(<NotificationsCenter />);
@@ -213,6 +225,8 @@ describe('NotificationsCenter – keyboard shortcuts', () => {
       markAsRead: mockMarkAsRead,
       markAllAsRead: mockMarkAllAsRead,
       clearNotifications: mockClearNotifications,
+      addNotification: mockAddNotification,
+      setNotifications: mockSetNotifications,
     });
 
     render(<NotificationsCenter />);

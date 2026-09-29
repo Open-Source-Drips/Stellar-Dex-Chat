@@ -55,6 +55,7 @@ describe('TransactionAmountDisplay', () => {
   });
 
   it('defaults asset to XLM if not provided', () => {
+    // @ts-expect-error - testing runtime default for missing asset prop
     render(<TransactionAmountDisplay amount={100} />);
     expect(screen.getByText(/100 XLM ≈ \$12\.40 USD/i)).toBeDefined();
   });
@@ -73,6 +74,7 @@ describe('TransactionAmountDisplay', () => {
 
   it('displays error for zero amount', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // @ts-expect-error - testing invalid amount to trigger error display
     render(<TransactionAmountDisplay amount={0} />);
     expect(screen.getByText(/Amount must be positive/i)).toBeDefined();
     consoleSpy.mockRestore();
@@ -80,6 +82,7 @@ describe('TransactionAmountDisplay', () => {
 
   it('displays error for negative amount', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // @ts-expect-error - testing invalid amount to trigger error display
     render(<TransactionAmountDisplay amount={-50} />);
     expect(screen.getByText(/Amount must be positive/i)).toBeDefined();
     consoleSpy.mockRestore();
@@ -111,6 +114,7 @@ describe('TransactionAmountDisplay', () => {
       fiatCurrency: 'USD',
       isLoading: false,
       hasError: false,
+      forceRefresh: vi.fn(),
       forceRefresh: async () => {},
     });
 
@@ -125,6 +129,7 @@ describe('TransactionAmountDisplay', () => {
       fiatCurrency: 'USD',
       isLoading: false,
       hasError: false,
+      forceRefresh: vi.fn(),
       forceRefresh: async () => {},
     });
 
@@ -168,6 +173,7 @@ describe('TransactionAmountDisplay - error border colour', () => {
 
   it('renders the error state with a themed danger border', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // @ts-expect-error - testing invalid amount to trigger error display
     render(<TransactionAmountDisplay amount={0} />);
     const errorMessage = screen.getByText(/Amount must be positive/i);
     expect(errorMessage).toHaveClass('theme-soft-danger');
@@ -209,6 +215,7 @@ describe('TransactionAmountDisplay - Framer Motion Animations', () => {
 
   it('applies animation props to error state', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // @ts-expect-error - testing invalid amount to trigger error display
     render(<TransactionAmountDisplay amount={0} />);
     const errorMessage = screen.getByText(/Amount must be positive/i);
     expect(errorMessage).toBeInTheDocument();
@@ -245,6 +252,7 @@ describe('TransactionAmountDisplay - Rules of Hooks regression', () => {
   it('does not crash when switching from invalid to valid props', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
+    // @ts-expect-error - testing invalid amount to trigger error display
     const { rerender } = render(<TransactionAmountDisplay amount={0} />);
     expect(screen.getByText(/Amount must be positive/i)).toBeDefined();
 
@@ -264,7 +272,8 @@ describe('TransactionAmountDisplay - Rules of Hooks regression', () => {
     expect(screen.getByText(/100 XLM ≈ \$12\.40 USD/i)).toBeDefined();
 
     expect(() => {
-      rerender(<TransactionAmountDisplay amount={null as unknown as number} />);
+      // @ts-expect-error - testing null amount edge case
+      rerender(<TransactionAmountDisplay amount={null} />);
     }).not.toThrow();
 
     consoleSpy.mockRestore();
@@ -286,6 +295,7 @@ describe('TransactionAmountDisplay - Rules of Hooks regression', () => {
     const { rerender } = render(<TransactionAmountDisplay amount={100} asset="XLM" />);
 
     for (let i = 0; i < 3; i++) {
+      // @ts-expect-error - testing invalid amount to trigger error display
       rerender(<TransactionAmountDisplay amount={-1} />);
       rerender(<TransactionAmountDisplay amount={50 + i} asset="XLM" />);
     }
@@ -316,6 +326,7 @@ describe('TransactionAmountDisplay - optimistic UI (#839)', () => {
       fiatCurrency: 'USD',
       originalAmount: 100,
       originalCurrency: 'XLM',
+      forceRefresh: vi.fn(),
       forceRefresh: async () => {},
     });
 
@@ -338,6 +349,7 @@ describe('TransactionAmountDisplay - optimistic UI (#839)', () => {
       fiatCurrency: 'USD',
       originalAmount: 100,
       originalCurrency: 'XLM',
+      forceRefresh: vi.fn(),
       forceRefresh: async () => {},
     });
 
@@ -351,6 +363,7 @@ describe('TransactionAmountDisplay - optimistic UI (#839)', () => {
       fiatCurrency: 'USD',
       originalAmount: 200,
       originalCurrency: 'XLM',
+      forceRefresh: vi.fn(),
       forceRefresh: async () => {},
     });
 
@@ -376,6 +389,7 @@ describe('TransactionAmountDisplay - optimistic UI (#839)', () => {
       fiatCurrency: 'USD',
       originalAmount: 50,
       originalCurrency: 'XLM',
+      forceRefresh: vi.fn(),
       forceRefresh: async () => {},
     });
 
@@ -400,6 +414,7 @@ describe('TransactionAmountDisplay - optimistic UI (#839)', () => {
       fiatCurrency: 'USD',
       originalAmount: 100,
       originalCurrency: 'XLM',
+      forceRefresh: vi.fn(),
       forceRefresh: async () => {},
     });
 

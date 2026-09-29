@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { withRetry, fetchWithRetry, RetryConfig } from './apiSchemas';
+import {
+  withRetry,
+  fetchWithRetry,
+  RetryConfig,
+  verifyAccountSchema,
+  createRecipientSchema,
+} from './apiSchemas';
 
 describe('apiSchemas - Request Retry with Exponential Backoff', () => {
   beforeEach(() => {
@@ -310,5 +316,111 @@ describe('apiSchemas - Request Retry with Exponential Backoff', () => {
 
       await expect(promise).resolves.toBe('success');
     });
+  });
+});
+
+describe('verifyAccountSchema', () => {
+  it('accepts a valid 10-digit NUBAN account number and bank code', () => {
+    const result = verifyAccountSchema.safeParse({
+      accountNumber: '1234567890',
+      bankCode: '058',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects an account number that is not exactly 10 digits', () => {
+    expect(
+      verifyAccountSchema.safeParse({ accountNumber: '123', bankCode: '058' })
+        .success,
+    ).toBe(false);
+    expect(
+      verifyAccountSchema.safeParse({
+        accountNumber: '12345678901',
+        bankCode: '058',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects a bank code outside the 3-6 digit range', () => {
+    expect(
+      verifyAccountSchema.safeParse({
+        accountNumber: '1234567890',
+        bankCode: '1',
+      }).success,
+    ).toBe(false);
+    expect(
+      verifyAccountSchema.safeParse({
+        accountNumber: '1234567890',
+        bankCode: '1234567',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects a query-parameter injection attempt in accountNumber', () => {
+    const result = verifyAccountSchema.safeParse({
+      accountNumber: '0123456789&currency=USD',
+      bankCode: '058',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects non-numeric account numbers and bank codes', () => {
+    expect(
+      verifyAccountSchema.safeParse({
+        accountNumber: 'abcdefghij',
+        bankCode: '058',
+      }).success,
+    ).toBe(false);
+    expect(
+      verifyAccountSchema.safeParse({
+        accountNumber: '1234567890',
+        bankCode: 'abc',
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('createRecipientSchema', () => {
+  const valid = {
+    type: 'nuban',
+    name: 'Test Account',
+    account_number: '1234567890',
+    bank_code: '058',
+    currency: 'NGN',
+  };
+
+  it('accepts a valid payload', () => {
+    expect(createRecipientSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it('rejects a query-parameter injection attempt in account_number', () => {
+    const result = createRecipientSchema.safeParse({
+      ...valid,
+      account_number: '0123456789¤cy=USD',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a bank_code outside the 3-6 digit range', () => {
+    expect(
+      createRecipientSchema.safeParse({ ...valid, bank_code: '12' }).success,
+    ).toBe(false);
+  });
+
+  it('rejects a currency other than NGN', () => {
+    expect(
+      createRecipientSchema.safeParse({ ...valid, currency: 'USD' }).success,
+    ).toBe(false);
+  });
+
+  it('rejects an oversized name or type', () => {
+    expect(
+      createRecipientSchema.safeParse({ ...valid, name: 'a'.repeat(101) })
+        .success,
+    ).toBe(false);
+    expect(
+      createRecipientSchema.safeParse({ ...valid, type: 'a'.repeat(51) })
+        .success,
+    ).toBe(false);
   });
 });

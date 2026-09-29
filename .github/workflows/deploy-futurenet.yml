@@ -30,12 +30,10 @@ jobs:
         uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # stable
         with:
           toolchain: stable
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
 
-      - name: Install Soroban CLI
-        run: |
-          curl -s https://raw.githubusercontent.com/stellar/rs-soroban-sdk/master/soroban-env/install-soroban.sh | bash
-          soroban --version
+      - name: Install Stellar CLI
+        run: cargo install --locked stellar-cli --version 28.0.0
 
       - name: Cache Cargo registry
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -49,7 +47,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build contract
-        run: cargo build --target wasm32-unknown-unknown --release
+        run: stellar contract build
 
       - name: Deploy to Futurenet
         id: deploy
