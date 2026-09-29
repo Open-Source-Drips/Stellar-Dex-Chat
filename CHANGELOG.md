@@ -418,7 +418,6 @@ Repo Avatar
 - **contract:** Add init replay protection
 - **contract:** Add bounds check to set_limit_max_cap and circuit breaker invariant tests
 - **contract,frontend:** Add execute_withdrawal invariants and frontend UX updates
-- **frontend:** Add CSP and security headers in next.config.ts
 - **frontend:** Add keyboard shortcuts to Message.tsx
 - **contract:** Guard withdraw with circuit breaker
 - **contract:** Record upgrade proposal timelock
@@ -427,6 +426,7 @@ Repo Avatar
 - **contract:** Harden emergency recovery administration
 - **contract:** Implement batch operations for heartbeat
 - **contract:** Add an explicit bounds check to set_limit
+- **frontend:** Add CSP and security headers in next.config.ts
 - **contract:** Include caller and ledger in deposit, withdraw, set_limit, set_operator events
 
 ### Fixed
@@ -859,11 +859,6 @@ Repo Avatar
 - **contract:** Restore the nonce storage keys a merge dropped
 - Test(contract): add Soroban invariant tests for execute_upgr
 - Test(contract): add Soroban invariant tests for execute_upgr
-- **contract:** Correct edge case validation in rescue_token
-- **contract:** Add edge case validation and tests for pause/unpause/rescue_token + test(frontend): add Playwright E2E coverage for AuditTable
-- **frontend:** Implement server-verified admin session with nonce/signature flow
-- **frontend:** Handle request.signal abort in payment-status SSE route
-- **frontend:** Refresh wallet XLM balance after deposits and use context balance
 - **frontend:** Avoid remote font fetch during build
 - **frontend:** Remove unused split view bindings
 - **frontend:** Guard bridge stats during hydration
@@ -872,6 +867,8 @@ Repo Avatar
 - **frontend:** Resolve split view build lint errors
 - **frontend:** Keep retry queue banner during reconnect
 - **contract:** Correct edge case validation in initialize
+- **contract:** Correct edge case validation in rescue_token
+- **contract:** Add edge case validation and tests for pause/unpause/rescue_token + test(frontend): add Playwright E2E coverage for AuditTable
 - **contract:** Correct edge case validation in upgrade
 - **ci:** Correct docker path validation regex to not match Dechat/ paths
 - **frontend:** Resolve build lint errors
@@ -892,10 +889,17 @@ Repo Avatar
 - **contract:** Stop token allowlist indexes from accumulating duplicates
 - **frontend:** StellarChatInterface reads navigator.onLine during render and duplicates the useOnlineStatus/useMediaQuery hooks
 - **frontend:** FAQ substring matching intercepts transactional messages before the parser and AI run
+- **frontend:** TranslationProvider hydration mismatch and lang attribute
+- **frontend:** Implement server-verified admin session with nonce/signature flow
+- **frontend:** Handle request.signal abort in payment-status SSE route
+- **frontend:** Refresh wallet XLM balance after deposits and use context balance
 - Resolve unused-vars ESLint errors blocking Next.js build
 - Resolve issues 1-4 including tests and env configurations
 - **frontend:** Confirm bank transfer success via real status, not a timer
 - **frontend:** Url-encode Paystack account-resolve params and tighten payout schemas
+- **frontend:** Landing page shows deployed contract address from env
+- **frontend:** Remove duplicate closing p tag in LandingPage
+- **frontend:** Remove unused CheckCircle import from LandingPage
 
 ### Changed
 
@@ -1138,21 +1142,20 @@ Repo Avatar
 - **frontend:** Cover optimistic delete/undo list behaviour in ChatHistorySidebar
 - Add pull request description
 - **frontend:** Add unit test coverage for useAccessibleModal
-- Expand set_circuit_breaker_threshold doc comment
-- Expand set_circuit_breaker_reset_window doc comment
-- Expand reset_circuit_breaker doc comment
-- Expand is_circuit_breaker_tripped doc comment
 - **frontend:** Add Playwright E2E coverage for OfflineStatusBanner, ChatInput, ChatSearchPanel and ErrorBoundary
 - **contracts:** Add invariant testing guide and improve inline documentation
 - **contract:** Add invariant tests for get_next_priority_withdrawal
 - **contract:** Add invariant tests for request_withdrawal
 - **contract:** Document the three new withdrawal/operator invariant suites
+- Expand set_circuit_breaker_threshold doc comment
+- Expand set_circuit_breaker_reset_window doc comment
+- Expand reset_circuit_breaker doc comment
+- Expand is_circuit_breaker_tripped doc comment
 - **frontend:** Add Playwright E2E coverage for NotificationsCenter.tsx
 - **frontend:** Add Playwright E2E coverage for NotificationsCenter.tsx
 - Add implementation review for heartbeat nonce-based replay protection
 - Add implementation review for fee vault typed reads
 - Improve inline documentation and architectural guides for overflow prevention
-- **contract:** Add regression tests for rescue_token edge cases
 - **contract:** Add Soroban invariant tests for get_withdrawal_request
 - **contract:** Add Soroban invariant tests for cancel_withdrawal
 - **contract:** Add Soroban invariant tests for set_fee_recipient
@@ -1162,6 +1165,7 @@ Repo Avatar
 - **frontend:** Use pnpm 9 for build check
 - Fix duplicated/malformed doc comment on get_escrow_storage_version
 - Improve inline documentation for overflow prevention
+- **contract:** Add regression tests for rescue_token edge cases
 - Update test calls for withdraw_fees nonce parameter
 - Record issue 595 verification
 - **#1451-1454:** Consolidate frontend CI, fix env vars, reconcile .env.example, fix docker paths
@@ -1205,6 +1209,7 @@ Repo Avatar
 - **changelog:** Update changelog [skip ci]
 - **repo:** Add CODEOWNERS and document required branch protection
 - Run cargo-deny and pnpm audit on a weekly schedule
+- **changelog:** Update changelog [skip ci]
 - **changelog:** Update changelog [skip ci]
 
 ### Deprecated
