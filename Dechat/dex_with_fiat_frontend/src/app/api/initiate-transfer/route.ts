@@ -3,7 +3,7 @@ import * as Sentry from '@sentry/nextjs';
 import { getPayoutProvider } from '@/lib/payout/providers/registry';
 import { telemetry } from '@/lib/telemetry';
 import { applyRateLimit, getClientIp } from '@/lib/rateLimit';
-import { setTransferStatus, getTransferStatus } from '@/lib/transferStore';
+import { setTransferStatus } from '@/lib/transferStore';
 import { initiateTransferSchema } from '@/lib/apiSchemas';
 
 const RATE_LIMIT = { maxRequests: 3, windowMs: 60_000 };

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { telemetry } from '@/lib/telemetry';
-import { isReplayEvent, replayCacheStats } from '@/lib/transferStore';
+import { isReplayEvent } from '@/lib/transferStore';
 import { getTransferStatus, setTransferStatus } from '@/lib/transferStore';
 import { serverEnv as env } from '@/lib/serverEnv';
 import { publishPaymentStatus } from '@/lib/paymentStatusEvents';
@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const payloadHash = crypto
+    const _payloadHash = crypto
       .createHash('sha256')
       .update(payload)
       .digest('hex');

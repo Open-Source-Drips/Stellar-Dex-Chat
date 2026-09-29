@@ -146,8 +146,6 @@ export default function AdminDashboard() {
   const [optimisticPage, setOptimisticPage] = useState<number | null>(null);
   const [optimisticFilter, setOptimisticFilter] = useState<string | null>(null);
   const [optimisticExportSuccess, setOptimisticExportSuccess] = useState(false);
-  const [isClearLogsDialogOpen, setIsClearLogsDialogOpen] = useState(false);
-  const [isClearingLogs, setIsClearingLogs] = useState(false);
   const [showReauthPrompt, setShowReauthPrompt] = useState(false);
   const enableAdminReconciliation = useFeatureFlag('enableAdminReconciliation');
   const chartColors = useChartColors();
@@ -234,13 +232,13 @@ export default function AdminDashboard() {
       const response = await fetch('/api/admin/reconciliation', {
         credentials: 'include',
       });
-      
+
       if (response.status === 401) {
         setShowReauthPrompt(true);
         setLoadingMetrics(false);
         return;
       }
-      
+
       if (response.ok) {
         const records: ReconciliationRecord[] = await response.json();
         setReconciliationRecords(records);
@@ -344,32 +342,26 @@ export default function AdminDashboard() {
     fetchAuditLogs(1, newFilter, true);
   };
 
-  const handleClearAuditLogs = async () => {
-    setIsClearingLogs(true);
+  const _handleClearAuditLogs = async () => {
     try {
       const response = await fetch('/api/admin/audit-log', {
         method: 'DELETE',
         credentials: 'include',
       });
-      
+
       if (response.status === 401) {
         setShowReauthPrompt(true);
-        setIsClearLogsDialogOpen(false);
-        setIsClearingLogs(false);
         return;
       }
-      
+
       if (!response.ok) {
         throw new Error(`Failed to clear audit logs (${response.status})`);
       }
-      setIsClearLogsDialogOpen(false);
       await fetchAuditLogs(1, actionFilter);
     } catch (error) {
       setAuditError(
         error instanceof Error ? error.message : 'Failed to clear audit logs',
       );
-    } finally {
-      setIsClearingLogs(false);
     }
   };
 
@@ -757,13 +749,12 @@ export default function AdminDashboard() {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm">
                             <span
-                              className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${
-                                entry.result === 'success'
-                                  ? 'theme-soft-success'
-                                  : entry.result === 'failed'
-                                    ? 'theme-soft-danger'
-                                    : 'theme-soft-warning'
-                              }`}
+                              className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${entry.result === 'success'
+                                ? 'theme-soft-success'
+                                : entry.result === 'failed'
+                                  ? 'theme-soft-danger'
+                                  : 'theme-soft-warning'
+                                }`}
                             >
                               {entry.result}
                             </span>
