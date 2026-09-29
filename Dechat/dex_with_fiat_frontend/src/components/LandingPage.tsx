@@ -753,7 +753,6 @@ export default function LandingPage() {
               Experience the future of XLM-to-fiat finance with our
               Soroban-powered platform
             </p>
-            </p>
           </div>
         </section>
       </main>
