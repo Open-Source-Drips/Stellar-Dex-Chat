@@ -30,6 +30,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { fetchTickerData } from '../lib/cryptoPriceService';
 import CopyButton from '@/components/ui/CopyButton';
 import OfflineStatusBanner from '@/components/OfflineStatusBanner';
+import { CONTRACT_ID } from '@/lib/stellarContract';
 
 interface FeatureCardProps {
   icon: React.ElementType;
@@ -108,16 +109,13 @@ const Step: React.FC<StepProps> = ({ number, title, description, delay }) => {
 
 export default function LandingPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [isSubmitted, setIsSubmitted] = useState(false);
   const { isDarkMode, toggleDarkMode } = useTheme();
   const [heroVisible, setHeroVisible] = useState(false);
   const [xlmPrice, setXlmPrice] = useState<number | null>(null);
   const [xlmChange, setXlmChange] = useState<number | null>(null);
   const [priceLoading, setPriceLoading] = useState(true);
 
-  const contractAddress =
-    'CB4L7Q6M3N7Z6K4L2A3B5C6D7E8F9G0H1I2J3K4L5M6N7O8P9Q0R1S2T3U4V5W6X7Y8Z9'; // Replace with actual deployed address
+  const contractAddress = CONTRACT_ID;
 
   useEffect(() => {
     setHeroVisible(true);
@@ -173,15 +171,6 @@ export default function LandingPage() {
     return () => window.removeEventListener('keydown', onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
-
-  const handleEmailSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitted(true);
-    // Here you would typically send the email to your backend
-    setTimeout(() => {
-      router.push('/chat');
-    }, 1500);
-  };
 
   const features = [
     {
@@ -378,9 +367,14 @@ export default function LandingPage() {
                 Smart Contract Address
               </p>
               <div className="flex items-center justify-between">
-                <code className="text-blue-400 font-mono text-sm break-all flex-1 mr-2">
+                <a
+                  href={`https://stellar.expert/explorer/testnet/contract/${contractAddress}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 font-mono text-sm break-all flex-1 mr-2 hover:underline"
+                >
                   {contractAddress}
-                </code>
+                </a>
                 <CopyButton value={contractAddress} />
               </div>
             </div>
@@ -759,50 +753,6 @@ export default function LandingPage() {
               Experience the future of XLM-to-fiat finance with our
               Soroban-powered platform
             </p>
-
-            {!isSubmitted ? (
-              <form
-                onSubmit={handleEmailSubmit}
-                className="flex flex-col sm:flex-row gap-4 max-w-lg mx-auto"
-                aria-label="Early access email signup"
-              >
-                <label htmlFor="landing-email-input" className="sr-only">
-                  Email address for early access
-                </label>
-                <input
-                  id="landing-email-input"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Enter your email address"
-                  autoComplete="email"
-                  className="flex-1 px-4 py-3 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:outline-none focus:border-blue-500 transition-colors duration-300"
-                  required
-                />
-                <button
-                  type="submit"
-                  className="bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] px-6 py-3 rounded-lg font-semibold transition-all duration-300 hover:scale-105 whitespace-nowrap"
-                  aria-label="Submit email and launch app"
-                >
-                  Launch App
-                </button>
-              </form>
-            ) : (
-              <div
-                className="flex items-center justify-center space-x-2 text-green-400"
-                role="status"
-                aria-live="polite"
-              >
-                <CheckCircle className="w-6 h-6" aria-hidden="true" />
-                <span className="text-lg">
-                  Welcome to Stellar DeFi! Launching DeFi Hub...
-                </span>
-              </div>
-            )}
-
-            <p className="text-sm text-[var(--color-text-muted)] mt-4">
-              By signing up, you agree to our Terms of Service and Privacy
-              Policy
             </p>
           </div>
         </section>
