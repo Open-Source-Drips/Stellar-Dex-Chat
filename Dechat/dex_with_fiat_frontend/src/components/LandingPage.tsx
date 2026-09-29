@@ -6,7 +6,6 @@ import {
   Shield,
   Zap,
   Globe,
-  CheckCircle,
   Play,
   Lock,
   Code,
