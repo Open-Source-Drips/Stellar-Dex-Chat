@@ -1,6 +1,6 @@
 import React from 'react';
 import { renderHook, act } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TranslationProvider, useTranslation } from './TranslationContext';
 
 function wrapper({ children }: { children: React.ReactNode }) {
@@ -10,6 +10,7 @@ function wrapper({ children }: { children: React.ReactNode }) {
 describe('TranslationContext', () => {
   beforeEach(() => {
     localStorage.clear();
+    vi.restoreAllMocks();
   });
 
   it('defaults to English when nothing is saved and the browser locale is unsupported', () => {
@@ -93,5 +94,51 @@ describe('TranslationContext', () => {
     expect(() => renderHook(() => useTranslation())).toThrow(
       'useTranslation must be used within a TranslationProvider',
     );
+  });
+
+  it('handles blocked localStorage gracefully during initialization', () => {
+    const originalGetItem = localStorage.getItem;
+    localStorage.getItem = vi.fn(() => {
+      throw new Error('Storage blocked');
+    });
+
+    const { result } = renderHook(() => useTranslation(), { wrapper });
+
+    expect(result.current.locale).toBe('en');
+
+    localStorage.getItem = originalGetItem;
+  });
+
+  it('handles blocked localStorage gracefully during setLocale', () => {
+    const originalSetItem = localStorage.setItem;
+    localStorage.setItem = vi.fn(() => {
+      throw new Error('Storage blocked');
+    });
+
+    const { result } = renderHook(() => useTranslation(), { wrapper });
+
+    act(() => {
+      result.current.setLocale('fr');
+    });
+
+    expect(result.current.locale).toBe('fr');
+
+    localStorage.setItem = originalSetItem;
+  });
+
+  it('updates document.documentElement.lang when locale changes', () => {
+    const { result } = renderHook(() => useTranslation(), { wrapper });
+
+    act(() => {
+      result.current.setLocale('fr');
+    });
+
+    expect(document.documentElement.lang).toBe('fr');
+
+    act(() => {
+      result.current.setLocale('es');
+    });
+
+    expect(document.documentElement.lang).toBe('es');
   });
 });

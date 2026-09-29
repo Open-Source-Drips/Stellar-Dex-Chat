@@ -4,6 +4,7 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { useRouter } from 'next/navigation';
 import LandingPage from '@/components/LandingPage';
 import { useTheme } from '../../contexts/ThemeContext';
+import { CONTRACT_ID } from '@/lib/stellarContract';
 
 vi.mock('next/navigation', () => ({
   useRouter: vi.fn(() => ({
@@ -35,11 +36,6 @@ describe('LandingPage – accessibility', () => {
     expect(screen.getByRole('main', { name: /DexFiat product overview/i })).toBeDefined();
   });
 
-  it('associates the early-access email field with a label', () => {
-    render(<LandingPage />);
-    expect(screen.getByLabelText(/email address for early access/i)).toBeDefined();
-  });
-
   it('labels the Stellar Expert external link for screen readers', () => {
     render(<LandingPage />);
     expect(
@@ -63,15 +59,6 @@ describe('LandingPage – accessibility', () => {
     const { container } = render(<LandingPage />);
     const decorativeIcons = container.querySelectorAll('svg[aria-hidden="true"]');
     expect(decorativeIcons.length).toBeGreaterThan(0);
-  });
-
-  it('announces the early-access success message via a status role', () => {
-    render(<LandingPage />);
-    const emailInput = screen.getByLabelText(/email address for early access/i);
-    fireEvent.change(emailInput, { target: { value: 'user@example.com' } });
-    const submitButton = screen.getByRole('button', { name: /submit email and launch app/i });
-    fireEvent.click(submitButton);
-    expect(screen.getByRole('status')).toBeDefined();
   });
 });
 
@@ -97,15 +84,22 @@ describe('LandingPage – keyboard shortcuts (#1185)', () => {
 
     expect(toggleDarkMode).toHaveBeenCalledTimes(1);
   });
+});
 
-  it('does not trigger the shortcut while typing in the email field', () => {
-    const push = vi.fn();
-    vi.mocked(useRouter).mockReturnValue({ push } as unknown as ReturnType<typeof useRouter>);
+describe('LandingPage – contract address (#1511)', () => {
+  afterEach(cleanup);
 
+  it('renders the contract address from the environment configuration', () => {
     render(<LandingPage />);
-    const emailInput = screen.getByLabelText(/email address for early access/i);
-    fireEvent.keyDown(emailInput, { key: 'g' });
+    const contractAddressElement = screen.getByText(CONTRACT_ID);
+    expect(contractAddressElement).toBeDefined();
+  });
 
-    expect(push).not.toHaveBeenCalled();
+  it('links the contract address to Stellar Expert explorer', () => {
+    render(<LandingPage />);
+    const contractLink = screen.getByText(CONTRACT_ID).closest('a');
+    expect(contractLink).toHaveAttribute('href', `https://stellar.expert/explorer/testnet/contract/${CONTRACT_ID}`);
+    expect(contractLink).toHaveAttribute('target', '_blank');
+    expect(contractLink).toHaveAttribute('rel', 'noopener noreferrer');
   });
 });

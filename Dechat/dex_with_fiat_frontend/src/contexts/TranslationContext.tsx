@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
 import en from '../locales/en.json';
 import fr from '../locales/fr.json';
 import es from '../locales/es.json';
@@ -45,21 +45,39 @@ function detectBrowserLocale(): SupportedLocale {
 }
 
 export function TranslationProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocaleState] = useState<SupportedLocale>(() => {
-    if (typeof window !== 'undefined') {
+  const [locale, setLocaleState] = useState<SupportedLocale>('en');
+
+  // Load locale from storage or browser detection in an effect to avoid hydration mismatch
+  useEffect(() => {
+    try {
       const stored = localStorage.getItem('locale');
       if (stored && SUPPORTED_LOCALES.includes(stored as SupportedLocale)) {
-        return stored as SupportedLocale;
+        setLocaleState(stored as SupportedLocale);
+        return;
       }
-      return detectBrowserLocale();
+      const detected = detectBrowserLocale();
+      setLocaleState(detected);
+    } catch {
+      // Storage access failed (e.g., Safari private mode), fall back to 'en'
+      setLocaleState('en');
     }
-    return 'en';
-  });
+  }, []);
 
   const handleSetLocale = useCallback((newLocale: SupportedLocale) => {
     setLocaleState(newLocale);
-    localStorage.setItem('locale', newLocale);
+    try {
+      localStorage.setItem('locale', newLocale);
+    } catch {
+      // Storage access failed, but state update still succeeds
+    }
   }, []);
+
+  // Update document.documentElement.lang when locale changes
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = locale;
+    }
+  }, [locale]);
 
   const t = useCallback((key: string, params?: Record<string, string | number>) => {
     const keys = key.split('.');
