@@ -5528,6 +5528,9 @@ mod test_is_circuit_breaker_tripped_invariants;
 mod test_withdraw_fees_batch_invariants;
 
 #[cfg(test)]
+mod test_get_fee_withdrawal_nonce_invariants;
+
+#[cfg(test)]
 mod test_denylist_invariants;
 
 #[cfg(test)]
