@@ -52,6 +52,11 @@ vi.mock('@/hooks/useBridgeStats', () => ({
 
 vi.mock('@/lib/cryptoPriceService', () => ({
   getTokenPrice: vi.fn().mockResolvedValue(0.12),
+  getTokenPriceWithStatus: vi.fn().mockResolvedValue({
+    price: 0.12,
+    stale: false,
+    source: 'live',
+  }),
   formatFiatAmount: vi.fn().mockReturnValue('$1.20'),
 }));
 

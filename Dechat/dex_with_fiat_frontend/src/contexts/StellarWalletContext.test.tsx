@@ -1,6 +1,6 @@
 import React from 'react';
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Networks } from '@stellar/stellar-sdk';
 import {
   StellarWalletProvider,
@@ -43,6 +43,11 @@ describe('StellarWalletContext', () => {
     freighter.signTransaction.mockResolvedValue({ signedTxXdr: 'SIGNED_XDR' });
     freighter.setAllowed.mockResolvedValue({ isAllowed: true });
     fetchXlmBalance.mockResolvedValue('100.0000000');
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
   });
 
   it('defaults to a disconnected state when Freighter is not installed', async () => {
@@ -121,6 +126,85 @@ describe('StellarWalletContext', () => {
     expect(result.current.accounts).toEqual([]);
     expect(result.current.xlmBalance).toBe('');
     expect(localStorage.getItem('stellar_address')).toBeNull();
+  });
+
+  it('updates the selected account when Freighter changes accounts', async () => {
+    vi.useFakeTimers();
+    window.freighter = {
+      getAccounts: vi
+        .fn()
+        .mockResolvedValue({ accounts: [ADDRESS, SECOND_ADDRESS] }),
+    };
+    const { result } = renderHook(() => useStellarWallet(), { wrapper });
+
+    await act(async () => {
+      await result.current.connect();
+    });
+    freighter.getAddress.mockResolvedValue({ address: SECOND_ADDRESS });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+
+    expect(result.current.connection.address).toBe(SECOND_ADDRESS);
+    expect(result.current.selectedAccountIndex).toBe(1);
+    expect(localStorage.getItem('stellar_address')).toBe(SECOND_ADDRESS);
+    expect(fetchXlmBalance).toHaveBeenLastCalledWith(SECOND_ADDRESS);
+  });
+
+  it('marks a switched network as mismatched and blocks signing', async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useStellarWallet(), { wrapper });
+
+    await act(async () => {
+      await result.current.connect();
+    });
+    freighter.getNetwork.mockResolvedValue({
+      network: 'PUBLIC',
+      networkPassphrase: Networks.PUBLIC,
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+
+    expect(result.current.isNetworkMismatch).toBe(true);
+    await expect(result.current.signTx('UNSIGNED_XDR')).rejects.toThrow(
+      'Please switch Freighter to Testnet',
+    );
+    expect(freighter.signTransaction).not.toHaveBeenCalled();
+  });
+
+  it('stops polling when disconnected or unmounted', async () => {
+    vi.useFakeTimers();
+    const { result, unmount } = renderHook(() => useStellarWallet(), {
+      wrapper,
+    });
+
+    await act(async () => {
+      await result.current.connect();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    freighter.getAddress.mockClear();
+
+    act(() => result.current.disconnect());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(freighter.getAddress).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.connect();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    freighter.getAddress.mockClear();
+    unmount();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(freighter.getAddress).not.toHaveBeenCalled();
   });
 
   describe('selectAccount', () => {

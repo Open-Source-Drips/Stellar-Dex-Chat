@@ -25,7 +25,10 @@ import {
 import { xlmToStroops, stroopsToXlm as stroopsToDisplay } from '@/lib/stroops';
 import type { FeeEstimate } from '@/lib/stellarContract';
 import useBridgeStats from '@/hooks/useBridgeStats';
-import { getTokenPrice, formatFiatAmount } from '@/lib/cryptoPriceService';
+import {
+  getTokenPriceWithStatus,
+  formatFiatAmount,
+} from '@/lib/cryptoPriceService';
 import SkeletonPayout from '@/components/ui/skeleton/SkeletonPayout';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useTxHistory } from '@/hooks/useTxHistory';
@@ -92,6 +95,7 @@ export default function StellarFiatModal({
   const [activePreset, setActivePreset] = useState<number | null>(null);
   const [recipient, setRecipient] = useState(recipientAddress);
   const [fiatEstimate, setFiatEstimate] = useState<string | null>(null);
+  const [isFiatEstimateStale, setIsFiatEstimateStale] = useState(false);
   const [note, setNote] = useState('');
   const [riskConfirmation, setRiskConfirmation] = useState('');
   const [lastLoggedRiskAmount, setLastLoggedRiskAmount] = useState('');
@@ -301,6 +305,7 @@ export default function StellarFiatModal({
     const xlm = parseFloat(amount);
     if (!xlm || xlm <= 0) {
       setFiatEstimate(null);
+      setIsFiatEstimateStale(false);
       return;
     }
 
@@ -308,13 +313,17 @@ export default function StellarFiatModal({
 
     const fetchEstimate = async () => {
       try {
-        const price = await getTokenPrice('XLM', fiatCurrency);
+        const quote = await getTokenPriceWithStatus('XLM', fiatCurrency);
         if (!cancelled) {
-          setFiatEstimate(formatFiatAmount(xlm * price, fiatCurrency));
+          setFiatEstimate(
+            formatFiatAmount(xlm * quote.price, fiatCurrency),
+          );
+          setIsFiatEstimateStale(quote.stale);
         }
       } catch {
         if (!cancelled) {
           setFiatEstimate(null);
+          setIsFiatEstimateStale(false);
         }
       }
     };
@@ -769,6 +778,11 @@ export default function StellarFiatModal({
                 at current market rate
               </p>
             )}
+              {isFiatEstimateStale && (
+                <p role="status" className="text-amber-400 text-xs -mt-2 mb-4">
+                  Estimated rate: live market prices are unavailable.
+                </p>
+              )}
 
             <div className="mb-4">
               <label className="theme-text-secondary block text-sm mb-1">

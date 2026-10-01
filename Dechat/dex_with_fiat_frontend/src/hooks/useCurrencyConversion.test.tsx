@@ -67,7 +67,11 @@ describe('useCurrencyConversion', () => {
   });
 
   it('caches exchange rates for 60 seconds', async () => {
-    fetchCryptoPricesMock.mockResolvedValue({ XLM: { usd: 0.1 } });
+    fetchCryptoPricesMock.mockResolvedValue({
+      prices: { XLM: { usd: 0.1 } },
+      stale: false,
+      source: 'live',
+    });
 
     const first = await renderHook(10);
     expect(first.value.fiatAmount).toBe(1);
@@ -80,7 +84,11 @@ describe('useCurrencyConversion', () => {
     expect(fetchCryptoPricesMock).toHaveBeenCalledTimes(1);
 
     vi.advanceTimersByTime(60_001);
-    fetchCryptoPricesMock.mockResolvedValue({ XLM: { usd: 0.2 } });
+    fetchCryptoPricesMock.mockResolvedValue({
+      prices: { XLM: { usd: 0.2 } },
+      stale: false,
+      source: 'live',
+    });
 
     const third = await renderHook(20);
     expect(third.value.fiatAmount).toBe(4);
@@ -91,8 +99,16 @@ describe('useCurrencyConversion', () => {
 
   it('forceRefresh bypasses the cached rate', async () => {
     fetchCryptoPricesMock
-      .mockResolvedValueOnce({ XLM: { usd: 0.1 } })
-      .mockResolvedValueOnce({ XLM: { usd: 0.25 } });
+      .mockResolvedValueOnce({
+        prices: { XLM: { usd: 0.1 } },
+        stale: false,
+        source: 'live',
+      })
+      .mockResolvedValueOnce({
+        prices: { XLM: { usd: 0.25 } },
+        stale: false,
+        source: 'live',
+      });
 
     const hook = await renderHook(10);
     expect(hook.value.fiatAmount).toBe(1);
@@ -110,9 +126,17 @@ describe('useCurrencyConversion', () => {
   // Verifies that an in-flight fetch that resolves after unmount does NOT
   // attempt to call setState on the unmounted component.
   it('does not call setState after unmount (memory-leak fix #1217)', async () => {
-    let resolveFetch!: (value: Record<string, Record<string, number>>) => void;
+    let resolveFetch!: (value: {
+      prices: Record<string, Record<string, number>>;
+      stale: boolean;
+      source: 'live' | 'cache' | 'fallback';
+    }) => void;
     fetchCryptoPricesMock.mockReturnValue(
-      new Promise<Record<string, Record<string, number>>>((resolve) => {
+      new Promise<{
+        prices: Record<string, Record<string, number>>;
+        stale: boolean;
+        source: 'live' | 'cache' | 'fallback';
+      }>((resolve) => {
         resolveFetch = resolve;
       }),
     );
@@ -129,7 +153,11 @@ describe('useCurrencyConversion', () => {
     // Now resolve the fetch — without the fix this would call setState on the
     // unmounted component and React would warn.
     await act(async () => {
-      resolveFetch({ XLM: { usd: 0.5 } });
+      resolveFetch({
+        prices: { XLM: { usd: 0.5 } },
+        stale: false,
+        source: 'live',
+      });
       await Promise.resolve();
     });
 

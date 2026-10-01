@@ -8,6 +8,13 @@ const VALID_STATUSES: TransactionStatus[] = [
   'cancelled',
 ];
 
+const JSON_LIST_PREFIX = '~json~';
+
+export interface FilterValidationOptions {
+  asset?: readonly string[];
+  network?: readonly string[];
+}
+
 /**
  * Serializes filter state to URL query parameters.
  *
@@ -21,10 +28,10 @@ export function serializeFilters(filterState: FilterState): URLSearchParams {
     params.set('status', filterState.status.join(','));
   }
   if (filterState.asset.length > 0) {
-    params.set('asset', filterState.asset.join(','));
+    params.set('asset', serializeFilterValues(filterState.asset));
   }
   if (filterState.network.length > 0) {
-    params.set('network', filterState.network.join(','));
+    params.set('network', serializeFilterValues(filterState.network));
   }
 
   return params;
@@ -36,24 +43,32 @@ export function serializeFilters(filterState: FilterState): URLSearchParams {
  * @param searchParams - URLSearchParams object from URL
  * @returns FilterState object
  */
-export function deserializeFilters(searchParams: URLSearchParams): FilterState {
+export function deserializeFilters(
+  searchParams: URLSearchParams,
+  validOptions: FilterValidationOptions = {},
+): FilterState {
   return {
     status: parseFilterParam(
       searchParams.get('status'),
       VALID_STATUSES,
     ) as TransactionStatus[],
-    asset: parseFilterParam(searchParams.get('asset')),
-    network: parseFilterParam(searchParams.get('network')),
+    asset: parseFilterParam(searchParams.get('asset'), validOptions.asset),
+    network: parseFilterParam(searchParams.get('network'), validOptions.network),
   };
 }
 
+function serializeFilterValues(values: readonly string[]): string {
+  return values.some((value) => value.includes(','))
+    ? `${JSON_LIST_PREFIX}${JSON.stringify(values)}`
+    : values.join(',');
+}
+
 /**
- * Parses a comma-separated filter parameter value.
+ * Parses a filter parameter value, accepting legacy comma-separated links.
  *
- * `URLSearchParams.get` has already percent-decoded the value, so the entries
- * are only trimmed and length-checked here. Decoding again is what made a
- * shared link such as `?asset=100%25` throw `URIError: URI malformed` on the
- * second pass and crash the transaction filter view.
+ * `URLSearchParams.get` has already percent-decoded the value. New values
+ * containing commas use a JSON-prefixed representation; legacy links remain
+ * comma-separated.
  *
  * @param param - Raw parameter value from URL
  * @param validValues - Optional array of valid values for validation
@@ -65,8 +80,21 @@ function parseFilterParam(
 ): string[] {
   if (!param) return [];
 
-  const values = param
-    .split(',')
+  let parsedValues: string[];
+  if (param.startsWith(JSON_LIST_PREFIX)) {
+    try {
+      const decoded: unknown = JSON.parse(param.slice(JSON_LIST_PREFIX.length));
+      parsedValues = Array.isArray(decoded)
+        ? decoded.filter((value): value is string => typeof value === 'string')
+        : [];
+    } catch {
+      return [];
+    }
+  } else {
+    parsedValues = param.split(',');
+  }
+
+  const values = parsedValues
     .map((v) => v.trim())
     .filter((v) => v.length > 0);
 

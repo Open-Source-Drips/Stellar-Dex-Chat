@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useChatHistory } from '@/hooks/useChatHistory';
 import { useTxHistory } from '@/hooks/useTxHistory';
 import { useStellarWallet } from '@/contexts/StellarWalletContext';
+import { useTranslation } from '@/contexts/TranslationContext';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import {
   MessageSquare,
@@ -30,6 +31,7 @@ import { ChatSession } from '@/types';
 import { ContractEvent } from '@/types/events';
 import { stroopsToXlmOrNull } from '@/lib/stroops';
 import { useSessionPagination } from '@/hooks/useSessionPagination';
+import { formatDateTime, formatRelativeHistoryDate } from '@/lib/dateFormatters';
 
 /**
  * Renders a contract-event amount for the activity feed.
@@ -217,6 +219,7 @@ export default function ChatHistorySidebar({
   } = useChatHistory();
   const { entries, clearEntries, updateEntry } = useTxHistory();
   const { connection } = useStellarWallet();
+  const { locale, t } = useTranslation();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(
@@ -534,7 +537,7 @@ export default function ChatHistorySidebar({
     doc.text('Stellar Bridge Transaction History', 14, 18);
     doc.setFontSize(10);
     doc.text(
-      `Exported: ${exportedAt.toLocaleString()} | Records: ${exportRows.length}`,
+      `Exported: ${formatDateTime(exportedAt, locale, { dateStyle: 'short', timeStyle: 'short' })} | Records: ${exportRows.length}`,
       14,
       26,
     );
@@ -562,7 +565,7 @@ export default function ChatHistorySidebar({
         }
 
         const row = [
-          entry.createdAt.toLocaleDateString(),
+          formatDateTime(entry.createdAt, locale, { dateStyle: 'short' }),
           entry.kind === 'payout' ? 'Withdrawal' : 'Deposit',
           entry.fiatAmount
             ? `${entry.amount ?? '-'} / ${entry.fiatAmount}`
@@ -583,28 +586,16 @@ export default function ChatHistorySidebar({
 
     doc.setFontSize(9);
     doc.text(`Wallet: ${walletAddress}`, 14, 280);
-    doc.text(`Export timestamp: ${exportedAt.toLocaleString()}`, 14, 286);
+    doc.text(
+      `Export timestamp: ${formatDateTime(exportedAt, locale, { dateStyle: 'short', timeStyle: 'short' })}`,
+      14,
+      286,
+    );
     doc.save(`stellar-bridge-history-${fileDate}.pdf`);
   };
 
-  const formatDate = (date: Date) => {
-    const now = new Date();
-    const diffTime = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 0) {
-      return date.toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    } else if (diffDays === 1) {
-      return 'Yesterday';
-    } else if (diffDays < 7) {
-      return `${diffDays} days ago`;
-    } else {
-      return date.toLocaleDateString();
-    }
-  };
+  const formatDate = (date: Date) =>
+    formatRelativeHistoryDate(date, locale, t('history.yesterday'));
 
   return (
     <ErrorBoundary
@@ -724,12 +715,14 @@ export default function ChatHistorySidebar({
                                 {event.actor.slice(-4)}
                               </span>
                               <span className="text-[10px] text-[var(--color-text-muted)]">
-                                {new Date(
-                                  event.ledgerClosedAt,
-                                ).toLocaleTimeString([], {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
+                                {formatDateTime(
+                                  new Date(event.ledgerClosedAt),
+                                  locale,
+                                  {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  },
+                                )}
                               </span>
                             </div>
                           </div>
