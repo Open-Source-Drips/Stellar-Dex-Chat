@@ -50,17 +50,33 @@ describe('deserializeFilters', () => {
     expect(deserializeFilters(params).status).toEqual(['pending', 'completed']);
   });
 
-  it('splits a value that itself contains a comma, which the format cannot escape', () => {
-    // ',' is both the separator and a legal character inside a value, and
-    // URLSearchParams.get decodes the whole parameter before this module sees
-    // it, so the two cases are indistinguishable here. Every value the UI can
-    // produce today is a token without a comma (asset codes, network names,
-    // statuses), so this is a documented edge of the format rather than a
-    // reachable defect. Escaping it would mean changing the link format.
+  it('round-trips a value that contains a comma', () => {
+    const state: FilterState = {
+      ...emptyState,
+      asset: ['XLM,DEX'],
+    };
+
+    expect(deserializeFilters(serializeFilters(state))).toEqual(state);
+  });
+
+  it('continues to split comma-separated values in legacy links', () => {
     const params = new URLSearchParams('asset=XLM%2CDEX');
 
     expect(params.get('asset')).toBe('XLM,DEX');
     expect(deserializeFilters(params).asset).toEqual(['XLM', 'DEX']);
+  });
+
+  it('validates assets and networks against the available options', () => {
+    const params = new URLSearchParams(
+      'asset=XLM,BOGUS&network=testnet,unknown',
+    );
+
+    expect(
+      deserializeFilters(params, {
+        asset: ['XLM'],
+        network: ['testnet'],
+      }),
+    ).toEqual({ status: [], asset: ['XLM'], network: ['testnet'] });
   });
 
   it('does not throw when a value contains a literal percent sign', () => {

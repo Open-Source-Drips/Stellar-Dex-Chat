@@ -1216,6 +1216,16 @@ export default function BankDetailsModal({
                     )}
                   </div>
 
+                    {lockedQuote?.stale && (
+                      <p
+                        role="status"
+                        className="flex items-center gap-2 text-amber-400 text-xs"
+                      >
+                        <AlertCircle className="w-3 h-3 flex-shrink-0" />
+                        Estimated rate: live market prices are unavailable.
+                      </p>
+                    )}
+
                   {/* Quote lock countdown */}
                   {lockedQuote && (
                     <div className="flex items-center justify-between text-xs pt-1">

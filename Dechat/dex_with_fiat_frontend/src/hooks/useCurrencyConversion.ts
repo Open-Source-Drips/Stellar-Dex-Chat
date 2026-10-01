@@ -12,11 +12,15 @@ export interface ConversionResult {
   displayText: string;
   isLoading: boolean;
   hasError: boolean;
+  isStale: boolean;
   forceRefresh: () => Promise<void>;
 }
 
 const RATE_CACHE_TTL_MS = 60 * 1000;
-const rateCache = new Map<string, { price: number; expiresAt: number }>();
+const rateCache = new Map<
+  string,
+  { price: number; stale: boolean; expiresAt: number }
+>();
 
 function getRateCacheKey(tokenSymbol: string, fiatCurrency: string): string {
   return `${tokenSymbol.toUpperCase()}_${fiatCurrency.toLowerCase()}`;
@@ -36,6 +40,7 @@ export function useCurrencyConversion(
   const [fiatAmount, setFiatAmount] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [hasError, setHasError] = useState(false);
+  const [isStale, setIsStale] = useState(false);
 
   // Memory-leak fix (#1217): fetchCryptoPrices is async. Without a mounted
   // guard, every setState call inside convertAmount would fire even after the
@@ -66,6 +71,7 @@ export function useCurrencyConversion(
   const convertAmount = useCallback(async (forceRefresh = false) => {
     if (!amount || amount <= 0 || !tokenSymbol) {
       setFiatAmount(null);
+      setIsStale(false);
       return;
     }
 
@@ -77,20 +83,27 @@ export function useCurrencyConversion(
       const cachedRate = rateCache.get(cacheKey);
       const now = Date.now();
       let price: number | undefined;
+      let stale = false;
 
       if (!forceRefresh && cachedRate && cachedRate.expiresAt > now) {
         price = cachedRate.price;
+        stale = cachedRate.stale;
       } else {
-        const prices = await fetchCryptoPrices([tokenSymbol], [fiatCurrency]);
+        const result = await fetchCryptoPrices([tokenSymbol], [fiatCurrency]);
 
         // Guard: component may have unmounted while the fetch was in-flight.
         if (!isMountedRef.current) return;
 
-        price = prices?.[tokenSymbol.toUpperCase()]?.[fiatCurrency.toLowerCase()];
+        price =
+          result.prices?.[tokenSymbol.toUpperCase()]?.[
+            fiatCurrency.toLowerCase()
+          ];
+        stale = result.stale;
 
         if (typeof price === 'number') {
           rateCache.set(cacheKey, {
             price,
+            stale,
             expiresAt: now + RATE_CACHE_TTL_MS,
           });
         }
@@ -101,15 +114,18 @@ export function useCurrencyConversion(
       if (typeof price === 'number') {
         const converted = amount * price;
         setFiatAmount(converted);
+        setIsStale(stale);
         setHasError(false);
       } else {
         setFiatAmount(null);
+        setIsStale(false);
         setHasError(true);
       }
     } catch (error) {
       console.error('Currency conversion error:', error);
       if (!isMountedRef.current) return;
       setFiatAmount(null);
+      setIsStale(false);
       setHasError(true);
     } finally {
       if (isMountedRef.current) {
@@ -143,8 +159,8 @@ export function useCurrencyConversion(
       maximumFractionDigits: 2,
     });
 
-    return `${amount} ${tokenSymbol} ≈ ${symbol}${formattedFiat} ${fiatCurrency.toUpperCase()}`;
-  }, [amount, tokenSymbol, fiatCurrency, fiatAmount, isLoading, hasError, getCurrencySymbolForCode]);
+    return `${isStale ? '~ ' : ''}${amount} ${tokenSymbol} ≈ ${symbol}${formattedFiat} ${fiatCurrency.toUpperCase()}`;
+  }, [amount, tokenSymbol, fiatCurrency, fiatAmount, isLoading, hasError, isStale, getCurrencySymbolForCode]);
 
   return {
     originalAmount: amount || 0,
@@ -154,6 +170,7 @@ export function useCurrencyConversion(
     displayText: displayText(),
     isLoading,
     hasError,
+    isStale,
     forceRefresh,
   };
 }

@@ -79,8 +79,12 @@ describe('cryptoPriceService', () => {
       const result = await fetchCryptoPrices(['XLM', 'ETH'], ['usd', 'eur']);
 
       expect(result).toEqual({
-        XLM: { usd: 0.11, eur: 0.1 },
-        ETH: { usd: 4000, eur: 3700 },
+        prices: {
+          XLM: { usd: 0.11, eur: 0.1 },
+          ETH: { usd: 4000, eur: 3700 },
+        },
+        stale: false,
+        source: 'live',
       });
     });
 
@@ -92,14 +96,33 @@ describe('cryptoPriceService', () => {
       });
 
       const result = await fetchCryptoPrices(['XLM'], ['usd']);
-      // Should get fallback values, not throw
-      expect(result.XLM).toBeDefined();
-      expect(result.XLM.usd).toBe(0.11);
+      expect(result).toEqual({
+        prices: { XLM: { usd: 0.11 } },
+        stale: true,
+        source: 'fallback',
+      });
+    });
+
+    it('prefers the last successful cached price when the API fails', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ stellar: { usd: 0.14 } }),
+      });
+      expect(await getTokenPrice('XLM', 'usd')).toBe(0.14);
+
+      mockFetch.mockRejectedValueOnce(new Error('network down'));
+      const result = await fetchCryptoPrices(['XLM'], ['usd']);
+
+      expect(result).toEqual({
+        prices: { XLM: { usd: 0.14 } },
+        stale: true,
+        source: 'cache',
+      });
     });
 
     it('returns fallback for unknown symbols', async () => {
       const result = await fetchCryptoPrices(['FAKECOIN'], ['usd']);
-      expect(result).toEqual({});
+      expect(result).toEqual({ prices: {}, stale: true, source: 'fallback' });
     });
   });
 

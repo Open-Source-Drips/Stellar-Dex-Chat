@@ -43,6 +43,13 @@ vi.mock('@/contexts/StellarWalletContext', () => ({
   }),
 }));
 
+vi.mock('@/contexts/TranslationContext', () => ({
+  useTranslation: () => ({
+    locale: 'en',
+    t: (key: string) => (key === 'history.yesterday' ? 'Yesterday' : key),
+  }),
+}));
+
 vi.mock('@/components/PriceTicker', () => ({ default: () => null }));
 vi.mock('@/components/ui/skeleton/SkeletonSidebar', () => ({ default: () => null }));
 

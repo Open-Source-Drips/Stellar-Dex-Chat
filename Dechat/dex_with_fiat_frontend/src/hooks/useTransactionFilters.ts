@@ -317,12 +317,35 @@ export function useTransactionFilters(
   // Parse filter state from URL (with fallback for SSR)
   const urlFilterState = useMemo(() => {
     try {
-      return deserializeFilters(searchParams);
+      const validOptions = transactions.length
+        ? {
+            asset: Array.from(
+              new Set(
+                transactions.flatMap((transaction) =>
+                  typeof transaction.asset === 'string'
+                    ? [transaction.asset]
+                    : [],
+                ),
+              ),
+            ),
+            network: Array.from(
+              new Set(
+                transactions.flatMap((transaction) =>
+                  'network' in transaction &&
+                  typeof transaction.network === 'string'
+                    ? [transaction.network]
+                    : [],
+                ),
+              ),
+            ),
+          }
+        : {};
+      return deserializeFilters(searchParams, validOptions);
     } catch {
       // Fallback for SSR/SSG
       return { status: [], asset: [], network: [] };
     }
-  }, [searchParams]);
+  }, [searchParams, transactions]);
 
   const filterState = optimisticFilterState ?? urlFilterState;
 

@@ -64,6 +64,9 @@
     "status": "Status",
     "date": "Date"
   },
+  "history": {
+    "yesterday": "Yesterday"
+  },
   "errors": {
     "101": "The contract has not been initialized.",
     "102": "The contract has already been initialized.",
