@@ -20,25 +20,7 @@ interface ChatInputProps {
   sessionId?: string | null;
 }
 
-/**
- * Keyboard Shortcuts
- *
- * The ChatInput component supports the following keyboard shortcuts to improve UX:
- *
- * Message Input:
- * - Ctrl+Enter (Cmd+Enter on Mac): Send message
- * - Enter (when command palette is open): Select highlighted command
- * - Arrow Up/Down: Navigate through command suggestions
- * - Escape: Close command suggestions
- * - '/': Open command palette (type at message start)
- *
- * Global Shortcuts:
- * - Ctrl+K (Cmd+K on Mac): Toggle command palette
- * - Ctrl+N (Cmd+N on Mac): Start new chat
- * - Ctrl+H (Cmd+H on Mac): Open chat history
- * - Ctrl+B (Cmd+B on Mac): Open bridge modal (fiat conversion)
- * - Ctrl+Shift+C (Cmd+Shift+C on Mac): Cancel pending request
- */
+
 
 const COMMON_EMOJIS = ['😊', '😂', '🙏', '👍', '❤️', '🔥', '✅', '🚀', '💰', '📊', '⭐', '🎉'];
 
