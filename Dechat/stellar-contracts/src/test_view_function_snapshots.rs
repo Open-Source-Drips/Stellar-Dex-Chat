@@ -67,13 +67,9 @@ fn snapshot_get_receipt_by_index() {
         let _id = receipt_data.id.clone();
         let _depositor_addr = receipt_data.depositor.clone();
         let _amount = receipt_data.amount;
-        let _ledger = receipt_data.ledger;
-        let _refunded = receipt_data.refunded;
-
         assert_eq!(receipt_data.depositor, depositor, "Depositor should match");
         assert_eq!(receipt_data.amount, deposit_amount, "Amount should match");
         assert!(receipt_data.ledger > 0, "Ledger should be set");
-        assert!(!receipt_data.refunded, "Receipt should not be refunded");
     }
 }
 

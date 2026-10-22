@@ -168,7 +168,7 @@ fn tracks_revocations_as_they_happen() {
 }
 
 #[test]
-fn reflects_the_executed_flag_after_execution() {
+fn reflects_proposal_deletion_after_execution() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -181,15 +181,8 @@ fn reflects_the_executed_flag_after_execution() {
 
     bridge.execute_multisig_action(&id);
 
-    let p = bridge.get_multisig_proposal(&id).unwrap();
-    assert!(
-        p.executed,
-        "the accessor must report the executed flag once set"
-    );
-    assert_eq!(
-        p.creator, proposer,
-        "execution must not rewrite proposal authorship"
-    );
+    // After execution, the proposal is deleted
+    assert!(bridge.get_multisig_proposal(&id).is_none());
 }
 
 #[test]

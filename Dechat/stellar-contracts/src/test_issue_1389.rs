@@ -4,7 +4,7 @@
 
 use crate::{Error, FiatBridge, FiatBridgeClient};
 use soroban_sdk::{
-    testutils::{Address as _, Events as _, Ledger},
+    testutils::{Address as _, Events as _, Ledger as _},
     token, Address, Bytes, Env, IntoVal, Symbol, Vec,
 };
 
@@ -80,7 +80,7 @@ fn test_execute_admin_action_applies_set_lock() {
     assert_eq!(bridge.get_lock_period(), 100);
 
     // Advance ledger past the timelock
-    env.ledger().set(35_001);
+    env.ledger().set_sequence_number(35_001);
 
     // Execute the action
     bridge.execute_admin_action(&action_id);
@@ -109,7 +109,7 @@ fn test_execute_admin_action_not_ready_before_delay() {
     let action_id = bridge.queue_admin_action(&action_type, &payload, &delay);
 
     // Try to execute before delay
-    env.ledger().set(34_999);
+    env.ledger().set_sequence_number(34_999);
     let result = bridge.try_execute_admin_action(&action_id);
     assert_eq!(result, Err(Ok(Error::ActionNotReady)));
 
@@ -140,7 +140,7 @@ fn test_cancel_admin_action() {
     assert!(bridge.get_queued_admin_action(&action_id).is_none());
 
     // Advance ledger past the timelock
-    env.ledger().set(35_001);
+    env.ledger().set_sequence_number(35_001);
 
     // Try to execute - should fail because action was cancelled
     let result = bridge.try_execute_admin_action(&action_id);

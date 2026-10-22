@@ -99,7 +99,7 @@ fn the_deadline_is_not_reached_one_ledger_early() {
     env.mock_all_auths();
 
     let (bridge, _admin) = setup_bridge(&env);
-    bridge.propose_upgrade(&hash_of(&env, 0x22));
+    bridge.propose_upgrade(&hash_of(&env, 0x22), &1u32);
     let deadline = bridge.get_upgrade_proposal().unwrap().executable_after;
 
     set_sequence(&env, deadline - 1);
@@ -116,7 +116,7 @@ fn the_timelock_releases_exactly_at_the_deadline() {
     env.mock_all_auths();
 
     let (bridge, _admin) = setup_bridge(&env);
-    bridge.propose_upgrade(&hash_of(&env, 0x33));
+    bridge.propose_upgrade(&hash_of(&env, 0x33), &1u32);
     let deadline = bridge.get_upgrade_proposal().unwrap().executable_after;
 
     set_sequence(&env, deadline);
@@ -140,7 +140,7 @@ fn a_rejected_execution_leaves_the_proposal_verbatim() {
 
     let (bridge, _admin) = setup_bridge(&env);
     let hash = hash_of(&env, 0x44);
-    bridge.propose_upgrade(&hash);
+    bridge.propose_upgrade(&hash, &1u32);
 
     let before_proposal = bridge.get_upgrade_proposal().unwrap();
     let before_state = state_fingerprint(&bridge);
@@ -169,7 +169,7 @@ fn repeated_premature_executions_never_wear_the_timelock_down() {
     env.mock_all_auths();
 
     let (bridge, _admin) = setup_bridge(&env);
-    bridge.propose_upgrade(&hash_of(&env, 0x55));
+    bridge.propose_upgrade(&hash_of(&env, 0x55), &1u32);
     let before = bridge.get_upgrade_proposal().unwrap();
 
     for _ in 0..10 {
@@ -196,7 +196,7 @@ fn a_cancelled_proposal_cannot_be_executed() {
 
     let (bridge, admin) = setup_bridge(&env);
     let hash = hash_of(&env, 0x66);
-    bridge.propose_upgrade(&hash);
+    bridge.propose_upgrade(&hash, &1u32);
     let deadline = bridge.get_upgrade_proposal().unwrap().executable_after;
 
     bridge.cancel_upgrade(&bridge.get_upgrade_cancellation_nonce(&admin));
@@ -217,14 +217,14 @@ fn re_proposing_re_arms_the_timelock() {
     env.mock_all_auths();
 
     let (bridge, _admin) = setup_bridge(&env);
-    bridge.propose_upgrade(&hash_of(&env, 0x77));
+    bridge.propose_upgrade(&hash_of(&env, 0x77), &1u32);
     let first_deadline = bridge.get_upgrade_proposal().unwrap().executable_after;
 
     // Advance to the point where the first proposal would have been executable,
     // then replace it. The replacement must get a fresh, later deadline.
     set_sequence(&env, first_deadline);
     let second = hash_of(&env, 0x88);
-    bridge.propose_upgrade(&second);
+    bridge.propose_upgrade(&second, &1u32);
 
     let p = bridge.get_upgrade_proposal().unwrap();
     assert_eq!(p.wasm_hash, second);
@@ -251,7 +251,7 @@ proptest! {
 
         let (bridge, _admin) = setup_bridge(&env);
         let hash = hash_of(&env, byte);
-        bridge.propose_upgrade(&hash);
+        bridge.propose_upgrade(&hash, &1u32);
 
         prop_assert_eq!(
             bridge.try_execute_upgrade(),
@@ -269,7 +269,7 @@ proptest! {
         env.mock_all_auths();
 
         let (bridge, _admin) = setup_bridge(&env);
-        bridge.propose_upgrade(&hash_of(&env, 0x99));
+        bridge.propose_upgrade(&hash_of(&env, 0x99), &1u32);
 
         let p = bridge.get_upgrade_proposal().unwrap();
         let deadline = p.executable_after;
@@ -297,7 +297,7 @@ proptest! {
         bridge.set_upgrade_delay(&delay);
 
         let seq_before = env.ledger().sequence();
-        bridge.propose_upgrade(&hash_of(&env, 0xAA));
+        bridge.propose_upgrade(&hash_of(&env, 0xAA), &1u32);
 
         let deadline = bridge.get_upgrade_proposal().unwrap().executable_after;
         prop_assert_eq!(deadline, seq_before.saturating_add(delay));
@@ -323,7 +323,7 @@ proptest! {
         env.mock_all_auths();
 
         let (bridge, _admin) = setup_bridge(&env);
-        bridge.propose_upgrade(&hash_of(&env, 0xBB));
+        bridge.propose_upgrade(&hash_of(&env, 0xBB), &1u32);
 
         let proposal_before = bridge.get_upgrade_proposal().unwrap();
         let state_before = state_fingerprint(&bridge);

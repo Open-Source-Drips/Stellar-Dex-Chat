@@ -55,6 +55,7 @@ fn test_migrate_upgrade_proposal_timing_legacy_proposal() {
         let proposal = UpgradeProposal {
             wasm_hash: wasm_hash.clone(),
             executable_after,
+            new_version: 1,
         };
         env.storage()
             .instance()

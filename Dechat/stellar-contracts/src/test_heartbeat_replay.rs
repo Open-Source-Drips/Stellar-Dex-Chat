@@ -7,13 +7,13 @@
 
 use crate::{Error, FiatBridge, FiatBridgeClient};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
+    testutils::{Address as _, Ledger as _},
     token, vec, Address, Bytes, Env,
 };
 
 fn setup<'a>(env: &Env) -> (FiatBridgeClient<'a>, Address) {
     let admin = Address::generate(env);
-    let contract_id = env.register_stellar_asset_contract_v2(&admin);
+    let contract_id = env.register_stellar_asset_contract_v2(admin.clone());
     let (token_client, _) = (
         token::Client::new(env, &contract_id.address()),
         token::StellarAssetClient::new(env, &contract_id.address()),
@@ -157,7 +157,7 @@ fn test_heartbeat_replay_after_circuit_breaker_reset_rejected() {
     let bridge_id = env.register(FiatBridge, ());
     let client = FiatBridgeClient::new(&env, &bridge_id);
 
-    let token_id = env.register_stellar_asset_contract_v2(&admin);
+    let token_id = env.register_stellar_asset_contract_v2(admin.clone());
     let token_client = token::Client::new(&env, &token_id.address());
     let token_sac = token::StellarAssetClient::new(&env, &token_id.address());
     let token_address = token_client.address.clone();

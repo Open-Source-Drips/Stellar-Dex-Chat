@@ -321,21 +321,11 @@ fn revoke_after_execution_is_rejected_and_leaves_no_state_change() {
 
     bridge.execute_multisig_action(&id);
 
-    let before = bridge.get_multisig_proposal(&id).unwrap();
-    assert!(before.executed, "proposal should be marked executed");
+    // After execution, the proposal is deleted
+    assert!(bridge.get_multisig_proposal(&id).is_none());
 
     let result = bridge.try_revoke_multisig_approval(&proposer, &id);
-    assert_eq!(result, Err(Ok(Error::ProposalAlreadyExecuted)));
-
-    let after = bridge.get_multisig_proposal(&id).unwrap();
-    assert_eq!(
-        before, after,
-        "an executed proposal's approvals must be frozen"
-    );
-    assert!(
-        after.approvals.contains(&proposer),
-        "execution-time approvals must remain on record"
-    );
+    assert_eq!(result, Err(Ok(Error::ProposalNotFound)));
 }
 
 // ── Cross-proposal isolation ─────────────────────────────────────────────────

@@ -18,6 +18,7 @@
 
 use crate::{Error, FiatBridge, FiatBridgeClient};
 use proptest::prelude::*;
+use soroban_sdk::testutils::Events as _;
 use soroban_sdk::{testutils::Address as _, token, Address, Bytes, Env, Vec};
 
 fn create_token_contract<'a>(

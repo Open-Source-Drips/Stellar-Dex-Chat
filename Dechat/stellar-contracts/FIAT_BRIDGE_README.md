@@ -92,6 +92,52 @@ Admin privileges in the FiatBridge are strictly tied to the on-chain state. The 
 
 ---
 
+## State Lifetime & Storage TTL Policy
+
+Soroban utilizes a state archival model where storage entries must have their Time-To-Live (TTL) periodically extended to prevent archival. The FiatBridge implements an automated TTL extension policy across all critical hot paths to guarantee uninterrupted operational availability.
+
+### Storage Tiers & Configuration Constants
+
+The contract uses standard TTL extension bounds:
+- **`MIN_TTL`**: `518,400` ledgers (~30 days at ~5 seconds per ledger).
+- **`MAX_TTL`**: `535,680` ledgers (~31 days at ~5 seconds per ledger).
+
+Whenever an entry's remaining lifetime falls below `MIN_TTL`, interacting with it on any supported hot path automatically extends its TTL out to `MAX_TTL`.
+
+### Monitored Persistent Storage Keys & Hot Paths
+
+| Key Pattern | Description | Auto-Extension Hot Paths |
+|---|---|---|
+| `DataKey::TokenRegistry(Address)` | Whitelisted token configurations, caps, and liability counters | `init`, `deposit`, `withdraw`, `request_withdrawal`, `execute_withdrawal`, `set_limit`, `release_liability`, `get_accrued_fees`, `get_accrued_fees_authenticated`, `trigger_emergency_recovery` |
+| `DataKey::WithdrawQueue(u64)` | Active queued withdrawal requests awaiting timelock maturity | `request_withdrawal`, `execute_withdrawal` (partial or full fulfillment), `get_withdrawal_request` |
+| `DataKey::Denied(Address)` & `DeniedIndex(u64)` | Sanctioned/denied account addresses and enumeration indexes | `deny_address`, `is_denied`, `reject_if_denied`, `get_denied_addresses` |
+| `DataKey::FeeVault(Address)` | Accrued protocol fee balance accumulators | `accrue_fee`, `withdraw_fees`, `withdraw_fees_batch`, `get_accrued_fees`, `get_accrued_fees_authenticated` |
+
+Instance storage (such as contract configuration, admin, paused state, and limits) is extended alongside contract execution to preserve core protocol parameters.
+
+---
+
+## Multisig Governance & Signer Rotation Policy
+
+The FiatBridge incorporates an on-chain multisig governance module for critical administrative actions.
+
+### Signer Rotation & Threshold Updates
+
+- Signer sets and signature thresholds are updated via the `update_multisig` governance action.
+- **Strict Multisig Gate**: Signer rotation and threshold updates cannot be executed directly or through single-admin batch operations (`execute_batch_admin`); they are strictly executable only through an approved multisig proposal (`execute_multisig_action`).
+- **Validation Invariants**:
+  - `signers.len() > 0` and `signers.len() <= MAX_SIGNERS` (20 signers maximum).
+  - `1 <= threshold <= signers.len()`.
+  - Signer addresses must be unique (no duplicates allowed).
+
+### Approval Recount at Execution
+
+- **Dynamic Recounting**: When `execute_multisig_action` is invoked, approvals are dynamically recounted against the currently active signer set stored in `DataKey::Signers`.
+- **Signer Revocation / Removal Impact**: If a signer approved an open proposal and was subsequently rotated out (removed) before execution, their approval is no longer counted toward the threshold.
+- **Threshold Enforcement**: If the number of remaining valid approvals from currently active signers is less than the current threshold, execution fails with `Error::ThresholdNotMet`. Additional approvals from active signers must be submitted before execution can proceed.
+
+---
+
 ## Error Code Reference
 
 All errors are returned as `Result<_, Error>` variants. The contract uses a flat numbering scheme starting at 1.

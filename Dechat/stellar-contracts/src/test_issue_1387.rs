@@ -76,7 +76,7 @@ fn test_set_operator_uses_admin_nonce() {
     assert_eq!(bridge.get_operator_nonce(&operator), 1);
 
     // Admin's set_operator with nonce 1 should still succeed
-    bridge.set_operator(&operator, &false, &1).unwrap();
+    bridge.set_operator(&operator, &false, &1);
 
     // Verify operator is deactivated
     assert!(!bridge.is_operator(&operator));

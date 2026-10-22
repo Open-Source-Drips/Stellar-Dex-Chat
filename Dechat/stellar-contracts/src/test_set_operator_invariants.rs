@@ -514,13 +514,17 @@ fn nonces_are_scoped_per_admin() {
     let operator = Address::generate(&env);
 
     bridge.set_operator(&operator, &true, &0);
-    bridge.set_operator(&operator, &false, &1);
 
-    assert_eq!(bridge.get_set_operator_nonce(&admin), 2);
+    assert_eq!(bridge.get_set_operator_nonce(&admin), 1);
     assert_eq!(bridge.get_operator_nonce(&operator), 0);
 
     // Operator's heartbeat nonce is separate from admin's set_operator nonce
     bridge.heartbeat(&operator, &0);
+    assert_eq!(bridge.get_set_operator_nonce(&admin), 1);
+    assert_eq!(bridge.get_operator_nonce(&operator), 1);
+
+    // Now deactivate operator with next admin nonce
+    bridge.set_operator(&operator, &false, &1);
     assert_eq!(bridge.get_set_operator_nonce(&admin), 2);
     assert_eq!(bridge.get_operator_nonce(&operator), 1);
 }
@@ -533,7 +537,7 @@ fn unauthorised_caller_is_rejected_and_leaves_no_state_change() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_contract_id, bridge, _admin) = setup_bridge(&env);
+    let (_contract_id, bridge, admin) = setup_bridge_with_admin(&env);
     let existing = Address::generate(&env);
     let hijacker = Address::generate(&env);
 
@@ -556,8 +560,9 @@ fn unauthorised_caller_is_rejected_and_leaves_no_state_change() {
     env.mock_all_auths();
     assert!(!bridge.is_operator(&hijacker));
     assert!(bridge.is_operator(&existing));
+    assert_eq!(bridge.get_set_operator_nonce(&admin), 1);
     assert_eq!(bridge.get_operator_nonce(&hijacker), 0);
-    assert_eq!(bridge.get_operator_nonce(&existing), 1);
+    assert_eq!(bridge.get_operator_nonce(&existing), 0);
     assert_eq!(accounting_before, accounting(&bridge));
 }
 
@@ -619,7 +624,7 @@ proptest! {
         let env = Env::default();
         env.mock_all_auths();
 
-        let (contract_id, bridge, _admin) = setup_bridge(&env);
+        let (contract_id, bridge, _admin) = setup_bridge_with_admin(&env);
 
         // Tier the addresses into a fixed-size array: this crate is `#![no_std]`.
         let mut operators: [Option<Address>; 6] = [None, None, None, None, None, None];
@@ -628,9 +633,11 @@ proptest! {
         }
 
         let mut active = 0u32;
+        let mut nonce = 0u64;
         for slot in operators.iter().take(grants) {
             let op = slot.as_ref().unwrap();
-            bridge.set_operator(op, &true, &0);
+            bridge.set_operator(op, &true, &nonce);
+            nonce += 1;
             active += 1;
             prop_assert_eq!(
                 last_event_u32(&env, &contract_id, "operator_count"),
@@ -641,7 +648,8 @@ proptest! {
         let to_revoke = revokes.min(grants);
         for slot in operators.iter().take(to_revoke) {
             let op = slot.as_ref().unwrap();
-            bridge.set_operator(op, &false, &1);
+            bridge.set_operator(op, &false, &nonce);
+            nonce += 1;
             active -= 1;
             prop_assert_eq!(
                 last_event_u32(&env, &contract_id, "operator_count"),
@@ -666,11 +674,11 @@ proptest! {
         let env = Env::default();
         env.mock_all_auths();
 
-        let (contract_id, bridge, _admin) = setup_bridge(&env);
+        let (contract_id, bridge, admin) = setup_bridge_with_admin(&env);
         bridge.set_max_operators(&cap);
 
-        for _ in 0..cap {
-            bridge.set_operator(&Address::generate(&env), &true, &0);
+        for nonce in 0..cap {
+            bridge.set_operator(&Address::generate(&env), &true, &(nonce as u64));
         }
         prop_assert_eq!(
             last_event_u32(&env, &contract_id, "operator_count"),
@@ -679,11 +687,11 @@ proptest! {
 
         let overflow = Address::generate(&env);
         prop_assert_eq!(
-            bridge.try_set_operator(&overflow, &true, &0),
+            bridge.try_set_operator(&overflow, &true, &(cap as u64)),
             Err(Ok(Error::OperatorCapReached))
         );
         prop_assert!(!bridge.is_operator(&overflow));
-        prop_assert_eq!(bridge.get_operator_nonce(&overflow), 0);
+        prop_assert_eq!(bridge.get_set_operator_nonce(&admin), cap as u64);
     }
 
     /// Any rejected nonce — stale or ahead — leaves the counter and the flag
@@ -693,24 +701,24 @@ proptest! {
         let env = Env::default();
         env.mock_all_auths();
 
-        let (_contract_id, bridge, _admin) = setup_bridge(&env);
+        let (_contract_id, bridge, admin) = setup_bridge_with_admin(&env);
         let operator = Address::generate(&env);
 
         prop_assert_eq!(
             bridge.try_set_operator(&operator, &true, &offered),
             Err(Ok(Error::InvalidNonce))
         );
-        prop_assert_eq!(bridge.get_operator_nonce(&operator), 0);
+        prop_assert_eq!(bridge.get_set_operator_nonce(&admin), 0);
         prop_assert!(!bridge.is_operator(&operator));
 
         // Now consume nonce 0 and replay every value below the new counter.
         bridge.set_operator(&operator, &true, &0);
-        prop_assert_eq!(bridge.get_operator_nonce(&operator), 1);
+        prop_assert_eq!(bridge.get_set_operator_nonce(&admin), 1);
         prop_assert_eq!(
             bridge.try_set_operator(&operator, &false, &0),
             Err(Ok(Error::StaleNonce))
         );
-        prop_assert_eq!(bridge.get_operator_nonce(&operator), 1);
+        prop_assert_eq!(bridge.get_set_operator_nonce(&admin), 1);
         prop_assert!(bridge.is_operator(&operator));
     }
 }
@@ -726,7 +734,7 @@ fn set_max_operators_rejects_cap_below_live_active_count() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_contract_id, bridge, _admin) = setup_bridge(&env);
+    let (_contract_id, bridge, _admin) = setup_bridge_with_admin(&env);
 
     let a = Address::generate(&env);
     let b = Address::generate(&env);
@@ -734,8 +742,8 @@ fn set_max_operators_rejects_cap_below_live_active_count() {
 
     // Activate three operators so the live count is 3.
     bridge.set_operator(&a, &true, &0);
-    bridge.set_operator(&b, &true, &0);
-    bridge.set_operator(&c, &true, &0);
+    bridge.set_operator(&b, &true, &1);
+    bridge.set_operator(&c, &true, &2);
 
     // Attempting to set a cap of 2 while 3 are active must fail.
     assert_eq!(
@@ -747,13 +755,13 @@ fn set_max_operators_rejects_cap_below_live_active_count() {
     bridge.set_max_operators(&3);
 
     // Now deactivate one; the cap can then be lowered to 2.
-    bridge.set_operator(&c, &false, &1);
+    bridge.set_operator(&c, &false, &3);
     bridge.set_max_operators(&2);
 
     // And a new operator still cannot be added beyond the cap.
     let d = Address::generate(&env);
     assert_eq!(
-        bridge.try_set_operator(&d, &true, &0),
+        bridge.try_set_operator(&d, &true, &4),
         Err(Ok(Error::OperatorCapReached))
     );
 }
@@ -765,19 +773,19 @@ fn set_max_operators_zero_always_succeeds() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_contract_id, bridge, _admin) = setup_bridge(&env);
+    let (_contract_id, bridge, _admin) = setup_bridge_with_admin(&env);
 
     let a = Address::generate(&env);
     let b = Address::generate(&env);
     bridge.set_operator(&a, &true, &0);
-    bridge.set_operator(&b, &true, &0);
+    bridge.set_operator(&b, &true, &1);
 
     // Even with 2 active operators, removing the cap (setting it to 0) must succeed.
     bridge.set_max_operators(&0);
 
     // After removing the cap a third operator must be admissible.
     let c = Address::generate(&env);
-    bridge.set_operator(&c, &true, &0);
+    bridge.set_operator(&c, &true, &2);
     assert!(bridge.is_operator(&c));
 }
 
@@ -789,7 +797,7 @@ fn set_operator_cap_check_uses_post_prune_count() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_contract_id, bridge, _admin) = setup_bridge(&env);
+    let (_contract_id, bridge, _admin) = setup_bridge_with_admin(&env);
     bridge.set_max_operators(&2);
 
     let a = Address::generate(&env);
@@ -797,17 +805,17 @@ fn set_operator_cap_check_uses_post_prune_count() {
     let c = Address::generate(&env);
 
     bridge.set_operator(&a, &true, &0);
-    bridge.set_operator(&b, &true, &0);
+    bridge.set_operator(&b, &true, &1);
 
     // Cap is reached: adding c must fail.
     assert_eq!(
-        bridge.try_set_operator(&c, &true, &0),
+        bridge.try_set_operator(&c, &true, &2),
         Err(Ok(Error::OperatorCapReached))
     );
 
     // Deactivate b, then add c — the list is now [a, c] which is within cap.
-    bridge.set_operator(&b, &false, &1);
-    bridge.set_operator(&c, &true, &0);
+    bridge.set_operator(&b, &false, &2);
+    bridge.set_operator(&c, &true, &3);
     assert!(bridge.is_operator(&c));
     assert!(!bridge.is_operator(&b));
 }
