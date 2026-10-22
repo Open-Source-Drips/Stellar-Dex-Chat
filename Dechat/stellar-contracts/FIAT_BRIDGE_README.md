@@ -175,6 +175,10 @@ A GitHub Actions step validates that the error table stays in sync with the cont
 | `set_limit_max_cap(max_cap)` | admin | Set the global ceiling for future per-token liability limits |
 | `get_set_limit_max_cap()` | — | Read the current global per-token limit ceiling |
 | `set_daily_deposit_limit(token, limit_per_day)` | admin | Set per-token 24-hour rolling-window deposit limit for users |
+| `register_token(token, limit, daily_limit)` | admin | Register an additional token (see [Token lifecycle](#token-lifecycle)) |
+| `get_token_config(token)` | — | Read a token's limits and accounting totals (`None` if unregistered) |
+| `set_slippage_threshold(threshold_bps)` | admin | Cap the `max_slippage` callers may pass to `deposit` / `execute_withdrawal` (0 = no cap) |
+| `set_operator_daily_limit(operator, limit)` | admin | Cap the operator's rolling 24h `withdraw` volume (0 = no cap) |
 | `set_cooldown(ledgers)` | admin | Set per-user deposit cooldown |
 | `transfer_admin(new_admin)` | admin | Initiate two-step admin transfer |
 | `accept_admin()` | pending admin | Complete admin transfer |
@@ -189,6 +193,37 @@ A GitHub Actions step validates that the error table stays in sync with the cont
 | `add_token_allowlist(token, address)` | admin | Add address to token-specific allowlist |
 | `remove_token_allowlist(token, address)` | admin | Remove address from token-specific allowlist |
 | `get_daily_deposit_record(user)` | — | Get 24h fiat deposit volume for a user |
+
+---
+
+## Token lifecycle
+
+The bridge keeps one `TokenConfig` per token under `TokenRegistry(token)`:
+per-deposit `limit`, per-user `daily_deposit_limit`, and the
+`total_deposited` / `total_withdrawn` / `total_liabilities` accumulators.
+
+1. **Primary token** – `init(admin, token, limit, …)` registers the primary
+   token (daily limit `0`, i.e. disabled). It is also stored as `Token` and is
+   the token reported by `get_limit`, `get_total_deposited`,
+   `get_total_withdrawn`, `get_total_liabilities` and `get_config_snapshot`.
+2. **Additional tokens** – the admin calls
+   `register_token(token, limit, daily_limit)`. `limit` must be `> 0` and within
+   `set_limit_max_cap`; `daily_limit` must be `0` (disabled) or `≤ limit`. A token
+   that is already registered (including the primary token) is rejected with
+   `TokenAlreadyRegistered` (320). A `TokenRegisteredEvent` is emitted.
+3. **Use** – a registered token can be passed as `token` to `deposit`,
+   `request_withdrawal` and `withdraw`, and to `withdraw_fees_batch`. Its
+   accounting is isolated: deposits and withdrawals of one token never touch
+   another token's `TokenConfig`, and the solvency invariant is checked per token.
+   Per-token allowlists (`set_token_allowlist_enabled`, `add_token_allowlist`)
+   apply to it as to the primary token.
+4. **Configuration** – `set_limit(token, …)` and
+   `set_daily_deposit_limit(token, …)` update an existing entry.
+   `get_token_config(token)` returns its current `TokenConfig`, or `None` if the
+   token is not registered.
+5. **Protection** – `rescue_token` refuses any registered token
+   (`RescueForbidden`), so deposited user funds can never be swept out as
+   "stray" tokens. There is no deregistration entrypoint.
 
 ---
 

@@ -36,6 +36,9 @@ const DEFAULT_INACTIVITY_THRESHOLD: u32 = 1_555_200; // ~3 months (≈17 280 led
 const MIN_UPGRADE_DELAY: u32 = 1_000;
 pub const EVENT_VERSION: u32 = 1;
 pub const ESCROW_STORAGE_VERSION: u32 = 1;
+/// Schema version of [`ConfigSnapshot`]. v2 removed `allowlist_enabled`
+/// (Issue #1401).
+pub const CONFIG_SNAPSHOT_VERSION: u32 = 2;
 
 // ── Error codes ───────────────────────────────────────────────────────────
 #[contracterror]
@@ -81,6 +84,9 @@ pub enum Error {
     InvalidAmount = 317,
     SelfReferentialAddress = 318,
     LimitCapCannotBeLowered = 319,
+    /// Returned by [`FiatBridge::register_token`] when the token already has a
+    /// registry entry (including the primary token registered by `init`).
+    TokenAlreadyRegistered = 320,
 
     // --- 400 series: Funds & Balances ---
     InsufficientFunds = 401,
@@ -89,8 +95,8 @@ pub enum Error {
     // --- 500 series: Withdrawal Queue ---
     RequestNotFound = 501,
     WithdrawalLocked = 502,
-    /// Deprecated: no contract path returns this error.
-    #[deprecated(note = "unused error code; do not use")]
+    /// Returned by [`FiatBridge::withdraw`] when the withdraw operator's rolling
+    /// 24h volume would exceed its [`FiatBridge::set_operator_daily_limit`] cap.
     OperatorDailyLimitExceeded = 503,
 
     // --- 600 series: Governance & Timelock ---
@@ -335,7 +341,6 @@ pub struct ConfigSnapshot {
     pub lock_period: u32,
     pub cooldown_ledgers: u32,
     pub inactivity_threshold: u32,
-    pub allowlist_enabled: bool,
     pub emergency_recovery: Option<Address>,
     pub anti_sandwich_delay: u32,
     pub paused: bool,
@@ -478,6 +483,23 @@ pub struct SetLockPeriodEvent {
     pub version: u32,
     pub old: u32,
     pub new: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct TokenRegisteredEvent {
+    pub version: u32,
+    pub token: Address,
+    pub limit: i128,
+    pub daily_limit: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct OperatorDailyLimitSetEvent {
+    pub version: u32,
+    pub operator: Address,
+    pub limit: i128,
 }
 
 #[contractevent]
@@ -845,8 +867,6 @@ pub enum DataKey {
     Paused,
     Token, // Default token
     TokenRegistry(Address),
-    AllowlistEnabled,
-    Allowed(Address),
     LastDeposit(Address),
     ReceiptCounter,
     Receipt(BytesN<32>),
@@ -952,6 +972,9 @@ pub enum DataKey {
     // ── Missing: limit max cap, operator daily limit, emergency recovery cap, fee withdrawal nonce
     LimitMaxCap,
     OperatorDailyLimit(Address),
+    /// Rolling 24h `withdraw` volume of an operator (temporary storage),
+    /// checked against `OperatorDailyLimit` (Issue #1403).
+    OperatorDailyVolume(Address),
     EmergencyRecoveryCap,
     FeeWithdrawalNonceByCaller(Address),
     // ── Issue #1113: per-caller replay protection for batch fee withdrawals ──
@@ -1189,6 +1212,8 @@ impl FiatBridge {
     /// * `reference` – Client payment reference (length $\le 64$).
     /// * `expected_price` – Expected benchmark oracle price scaled by `FIXED_POINT` (0 to skip slippage check).
     /// * `max_slippage` – Maximum allowed downward price slippage in basis points (BPS).
+    ///   Clamped to the admin [`SlippageThreshold`](DataKey::SlippageThreshold) when that is
+    ///   non-zero, so passing a larger value cannot loosen the admin policy.
     /// * `memo_hash` – Optional 32-byte hash identifying the deposit batch/memo.
     ///
     /// # Returns
@@ -1202,7 +1227,8 @@ impl FiatBridge {
     /// * [`Error::TokenNotWhitelisted`] – If token is not registered.
     /// * [`Error::ExceedsLimit`] – If `amount` exceeds per-transaction limit.
     /// * [`Error::ExceedsFiatLimit`] – If `amount` exceeds 24-hour fiat volume cap.
-    /// * [`Error::SlippageTooHigh`] – If execution price deviates downward beyond `max_slippage`.
+    /// * [`Error::SlippageTooHigh`] – If execution price deviates downward beyond
+    ///   `min(max_slippage, SlippageThreshold)` (or `max_slippage` when no threshold is set).
     /// * [`Error::Overflow`] – If vault deposit accumulator overflows `i128`.
     pub fn deposit(
         env: Env,
@@ -1255,36 +1281,21 @@ impl FiatBridge {
             .temporary()
             .extend_ttl(&key, max_delay, max_delay + 100);
 
-        // Allowlist
-        let global_allowlist_on: bool = env
+        // Per-token allowlist (Issue #354). This is the only allowlist: the
+        // former global `AllowlistEnabled`/`Allowed` keys had no setter and
+        // were removed (Issue #1401).
+        let token_allowlist_on: bool = env
             .storage()
             .instance()
-            .get(&DataKey::AllowlistEnabled)
+            .get(&DataKey::TokenAllowlistEnabled(token.clone()))
             .unwrap_or(false);
-
-        if global_allowlist_on {
-            if !env
+        if token_allowlist_on
+            && !env
                 .storage()
                 .persistent()
-                .has(&DataKey::Allowed(from.clone()))
-            {
-                return Err(Error::NotAllowed);
-            }
-        } else {
-            // Per-token allowlist check (Issue #354)
-            let token_allowlist_on: bool = env
-                .storage()
-                .instance()
-                .get(&DataKey::TokenAllowlistEnabled(token.clone()))
-                .unwrap_or(false);
-            if token_allowlist_on
-                && !env
-                    .storage()
-                    .persistent()
-                    .has(&DataKey::TokenAllowed(token.clone(), from.clone()))
-            {
-                return Err(Error::NotAllowed);
-            }
+                .has(&DataKey::TokenAllowed(token.clone(), from.clone()))
+        {
+            return Err(Error::NotAllowed);
         }
 
         // Denylist
@@ -1520,6 +1531,10 @@ impl FiatBridge {
     /// # Errors
     /// * [`Error::Unauthorized`] – If `caller` is not admin or active withdraw operator.
     /// * [`Error::ZeroAmount`] – If `amount <= 0`.
+    /// * [`Error::OperatorDailyLimitExceeded`] – If `caller` is the withdraw operator and
+    ///   `amount` would push its rolling 24h volume above its
+    ///   [`set_operator_daily_limit`](FiatBridge::set_operator_daily_limit) cap. The admin is
+    ///   not subject to this cap.
     /// * [`Error::InvalidRecipient`] – If `to == env.current_contract_address()`.
     /// * [`Error::AddressDenied`] – If recipient is on the denylist.
     /// * [`Error::InsufficientFunds`] – If contract holds fewer tokens than `amount`.
@@ -1541,22 +1556,21 @@ impl FiatBridge {
 
         let operator: Option<Address> = env.storage().instance().get(&DataKey::WithdrawOperator);
 
-        if caller == admin {
-            caller.require_auth();
-        } else if let Some(op) = operator {
-            if caller == op {
-                caller.require_auth();
-            } else {
-                return Err(Error::Unauthorized);
-            }
-        } else {
+        let is_admin = caller == admin;
+        if !is_admin && operator.as_ref() != Some(&caller) {
             return Err(Error::Unauthorized);
         }
+        caller.require_auth();
 
         Self::require_not_paused(&env)?;
 
         if amount <= 0 {
             return Err(Error::ZeroAmount);
+        }
+
+        // Issue #1403: per-operator rolling 24h volume cap (admin is exempt).
+        if !is_admin {
+            Self::enforce_operator_daily_limit(&env, &caller, amount)?;
         }
 
         // ── Issue #109: prevent tokens from being locked inside the contract ──
@@ -1806,6 +1820,8 @@ impl FiatBridge {
     /// * `partial_amount` – Optional sub-amount to partially execute (if `None`, executes full remaining amount).
     /// * `expected_price` – Expected benchmark oracle price scaled by `FIXED_POINT` (0 to skip slippage check).
     /// * `max_slippage` – Maximum allowed downward price slippage in basis points.
+    ///   Clamped to the admin [`SlippageThreshold`](DataKey::SlippageThreshold) when that is
+    ///   non-zero, so passing a larger value cannot loosen the admin policy.
     /// * `nonce` – Replay protection nonce corresponding to recipient address.
     ///
     /// # Errors
@@ -1817,7 +1833,8 @@ impl FiatBridge {
     /// * [`Error::WithdrawalLocked`] – If request is still within timelock.
     /// * [`Error::AntiSandwichDelayActive`] – If executed before anti-sandwich delay expires.
     /// * [`Error::InsufficientFunds`] – If contract balance is insufficient.
-    /// * [`Error::SlippageTooHigh`] – If actual oracle price exceeds max slippage threshold.
+    /// * [`Error::SlippageTooHigh`] – If the oracle price deviates downward beyond
+    ///   `min(max_slippage, SlippageThreshold)` (or `max_slippage` when no threshold is set).
     /// * [`Error::InternalError`] – If `total_withdrawn` overflows `i128`.
     pub fn execute_withdrawal(
         env: Env,
@@ -2185,6 +2202,89 @@ impl FiatBridge {
         .publish(&env);
 
         Ok(())
+    }
+
+    /// Registers an additional token so it can be deposited, queued for
+    /// withdrawal and swept for fees alongside the primary token (Issue #1400).
+    ///
+    /// The new token gets its own [`TokenConfig`] with zeroed accounting, so its
+    /// totals are isolated from every other token. Once registered, the token is
+    /// protected from [`rescue_token`](FiatBridge::rescue_token). Its limits can
+    /// later be changed with [`set_limit`](FiatBridge::set_limit) and
+    /// [`set_daily_deposit_limit`](FiatBridge::set_daily_deposit_limit).
+    ///
+    /// # Arguments
+    /// * `token` – Token contract address to register.
+    /// * `limit` – Per-deposit limit in the token's smallest unit (must be $> 0$ and
+    ///   $\le$ the configured limit max cap).
+    /// * `daily_limit` – Per-user rolling 24h deposit limit (`0` disables it; must be
+    ///   $\ge 0$ and $\le$ `limit`).
+    ///
+    /// # Errors
+    /// * [`Error::NotInitialized`] / [`Error::Unauthorized`] – If the caller is not the admin.
+    /// * [`Error::ZeroAmount`] – If `limit <= 0`.
+    /// * [`Error::ExceedsLimitMaxCap`] – If `limit` exceeds the configured limit max cap.
+    /// * [`Error::InvalidAmount`] – If `daily_limit < 0`.
+    /// * [`Error::ExceedsLimit`] – If `daily_limit > limit`.
+    /// * [`Error::SelfReferentialAddress`] – If `token` is the contract's own address.
+    /// * [`Error::TokenAlreadyRegistered`] – If `token` already has a registry entry.
+    pub fn register_token(
+        env: Env,
+        token: Address,
+        limit: i128,
+        daily_limit: i128,
+    ) -> Result<(), Error> {
+        let _admin = Self::require_admin(&env)?;
+        if limit <= 0 {
+            return Err(Error::ZeroAmount);
+        }
+        let max_cap: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::LimitMaxCap)
+            .unwrap_or(i128::MAX);
+        if limit > max_cap {
+            return Err(Error::ExceedsLimitMaxCap);
+        }
+        if daily_limit < 0 {
+            return Err(Error::InvalidAmount);
+        }
+        if daily_limit > limit {
+            return Err(Error::ExceedsLimit);
+        }
+        if token == env.current_contract_address() {
+            return Err(Error::SelfReferentialAddress);
+        }
+        let key = DataKey::TokenRegistry(token.clone());
+        if env.storage().persistent().has(&key) {
+            return Err(Error::TokenAlreadyRegistered);
+        }
+        env.storage().persistent().set(
+            &key,
+            &TokenConfig {
+                limit,
+                daily_deposit_limit: daily_limit,
+                total_deposited: 0,
+                total_withdrawn: 0,
+                total_liabilities: 0,
+            },
+        );
+        TokenRegisteredEvent {
+            version: EVENT_VERSION,
+            token,
+            limit,
+            daily_limit,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Returns the registry entry (limits and accounting totals) for `token`,
+    /// or `None` if the token is not registered.
+    pub fn get_token_config(env: Env, token: Address) -> Option<TokenConfig> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::TokenRegistry(token))
     }
 
     pub fn set_token_allowlist_enabled(
@@ -2579,10 +2679,15 @@ impl FiatBridge {
     /// * `env` – The Soroban host environment.
     /// * `expected_price` – Expected benchmark oracle price scaled by `FIXED_POINT` (0 to skip check).
     /// * `actual_price` – Realized oracle price scaled by `FIXED_POINT`.
-    /// * `max_slippage_bps` – Maximum allowable downward slippage in basis points (1 BPS = 0.01%).
+    /// * `max_slippage_bps` – Caller-requested maximum downward slippage in basis points
+    ///   (1 BPS = 0.01%). When the admin has set a non-zero
+    ///   [`SlippageThreshold`](DataKey::SlippageThreshold), this is clamped to
+    ///   `min(max_slippage_bps, threshold)`, so a caller can tighten but never
+    ///   loosen the admin policy (Issue #1402).
     ///
     /// # Errors
-    /// * [`Error::SlippageTooHigh`] – If downward price slippage exceeds `max_slippage_bps`.
+    /// * [`Error::SlippageTooHigh`] – If downward price slippage exceeds the effective
+    ///   (clamped) tolerance.
     fn check_slippage(
         env: &Env,
         expected_price: i128,
@@ -2592,6 +2697,18 @@ impl FiatBridge {
         if expected_price <= 0 {
             return Ok(()); // Skip if no benchmark provided
         }
+
+        // Issue #1402: the admin threshold caps the caller-supplied tolerance.
+        let threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::SlippageThreshold)
+            .unwrap_or(0);
+        let max_slippage_bps = if threshold > 0 {
+            max_slippage_bps.min(threshold)
+        } else {
+            max_slippage_bps
+        };
 
         // Computed slippage in BPS: (Expected - Actual) / Expected * 10,000
         // We only care about downward slippage for these paths.
@@ -2754,6 +2871,51 @@ impl FiatBridge {
         Ok(())
     }
 
+    /// Adds `amount` to `operator`'s rolling 24h `withdraw` volume, failing with
+    /// [`Error::OperatorDailyLimitExceeded`] if that would exceed the configured
+    /// limit. A missing or zero limit disables the check. The volume lives in
+    /// temporary storage, so it simply expires once the window is over.
+    fn enforce_operator_daily_limit(
+        env: &Env,
+        operator: &Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        let limit: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::OperatorDailyLimit(operator.clone()))
+            .unwrap_or(0);
+        if limit <= 0 {
+            return Ok(());
+        }
+
+        let curr = env.ledger().sequence();
+        let key = DataKey::OperatorDailyVolume(operator.clone());
+        let mut vol: GlobalDailyWithdrawn =
+            env.storage()
+                .temporary()
+                .get(&key)
+                .unwrap_or(GlobalDailyWithdrawn {
+                    amount: 0,
+                    window_start: curr,
+                });
+        if curr >= vol.window_start.saturating_add(WINDOW_LEDGERS) {
+            vol.amount = 0;
+            vol.window_start = curr;
+        }
+
+        let new_total = vol.amount.checked_add(amount).ok_or(Error::Overflow)?;
+        if new_total > limit {
+            return Err(Error::OperatorDailyLimitExceeded);
+        }
+        vol.amount = new_total;
+        env.storage().temporary().set(&key, &vol);
+        env.storage()
+            .temporary()
+            .extend_ttl(&key, WINDOW_LEDGERS, WINDOW_LEDGERS);
+        Ok(())
+    }
+
     // ── Timelock ──────────────────────────────────────────────────────────
     /// Queues an administrative action subject to a mandatory timelock delay.
     ///
@@ -2895,15 +3057,6 @@ impl FiatBridge {
         nonce: u64,
     ) -> Result<(), Error> {
         let admin = Self::require_admin(&env)?;
-
-        let current_slippage_threshold: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::SlippageThreshold)
-            .unwrap_or(0);
-        if current_slippage_threshold > 10000 {
-            return Err(Error::SlippageTooHigh);
-        }
 
         // Reject admin as operator (role confusion guard)
         if operator == admin {
@@ -4101,14 +4254,17 @@ impl FiatBridge {
             .unwrap_or(0)
     }
 
-    /// Set the slippage threshold for batch operations.
+    /// Set the protocol-wide maximum slippage, in basis points (BPS).
     ///
-    /// This function sets the maximum allowed slippage in basis points (BPS).
-    /// 1 BPS = 0.01%, so 10000 BPS = 100%.
+    /// 1 BPS = 0.01%, so 10000 BPS = 100%. When non-zero, [`deposit`](FiatBridge::deposit)
+    /// and [`execute_withdrawal`](FiatBridge::execute_withdrawal) clamp the caller-supplied
+    /// `max_slippage` to this value, so a caller can only tighten the admin policy, never
+    /// loosen it. `0` disables the cap and the caller's `max_slippage` is used as-is.
+    /// The same value can also be set through the `set_slippage_threshold` batch op.
     ///
     /// # Parameters
     ///
-    /// - `threshold_bps` – the slippage threshold in basis points (0-10000)
+    /// - `threshold_bps` – the slippage threshold in basis points (0-10000; 0 = no cap)
     ///
     /// # Errors
     ///
@@ -4303,7 +4459,7 @@ impl FiatBridge {
             .ok_or(Error::NotInitialized)?;
 
         Ok(ConfigSnapshot {
-            version: EVENT_VERSION,
+            version: CONFIG_SNAPSHOT_VERSION,
             admin,
             pending_admin: env.storage().instance().get(&DataKey::PendingAdmin),
             token,
@@ -4324,11 +4480,6 @@ impl FiatBridge {
                 .instance()
                 .get(&DataKey::InactivityThreshold)
                 .unwrap_or(DEFAULT_INACTIVITY_THRESHOLD),
-            allowlist_enabled: env
-                .storage()
-                .instance()
-                .get(&DataKey::AllowlistEnabled)
-                .unwrap_or(false),
             emergency_recovery: env
                 .storage()
                 .instance()
@@ -5839,26 +5990,32 @@ impl FiatBridge {
             .unwrap_or(i128::MAX)
     }
 
-    /// Set a per-operator daily withdrawal limit.
+    /// Set a per-operator rolling 24h withdrawal limit.
     ///
-    /// `limit` is denominated in the token's smallest unit (stroops for XLM).
-    /// It must be strictly positive — zero or negative values are rejected with
-    /// [`Error::ZeroAmount`] because a non-positive cap would either silently
-    /// block all withdrawals (0) or wrap around on comparison (negative).
+    /// `limit` is denominated in the token's smallest unit (stroops for XLM)
+    /// and is stored per `operator` under [`DataKey::OperatorDailyLimit`].
+    /// `0` disables the limit; negative values are rejected with
+    /// [`Error::InvalidAmount`]. Emits [`OperatorDailyLimitSetEvent`].
     ///
-    /// The limit applies per UTC calendar day and is tracked independently for
-    /// each `operator` address in instance storage under
-    /// [`DataKey::OperatorDailyLimit`].  Calls to `withdraw` accumulate against
-    /// this cap; once reached, further withdrawals by that operator fail with
-    /// [`Error::OperatorDailyLimitExceeded`] until the day rolls over.
+    /// Each [`withdraw`](FiatBridge::withdraw) made by the operator adds to a
+    /// volume counter that resets `WINDOW_LEDGERS` (~24h) after the first
+    /// withdrawal of the window. A withdrawal that would push the counter
+    /// above `limit` fails with [`Error::OperatorDailyLimitExceeded`];
+    /// reaching the limit exactly is allowed. The admin is not subject to it.
     pub fn set_operator_daily_limit(env: Env, operator: Address, limit: i128) -> Result<(), Error> {
         let _admin = Self::require_admin(&env)?;
-        if limit <= 0 {
-            return Err(Error::ZeroAmount);
+        if limit < 0 {
+            return Err(Error::InvalidAmount);
         }
         env.storage()
             .instance()
-            .set(&DataKey::OperatorDailyLimit(operator), &limit);
+            .set(&DataKey::OperatorDailyLimit(operator.clone()), &limit);
+        OperatorDailyLimitSetEvent {
+            version: EVENT_VERSION,
+            operator,
+            limit,
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -6104,3 +6261,6 @@ mod test_denylist_invariants;
 
 #[cfg(test)]
 mod test_token_allowlist_invariants;
+
+#[cfg(test)]
+mod test_issues_1400_1403;

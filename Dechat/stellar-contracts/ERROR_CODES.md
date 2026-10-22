@@ -37,10 +37,12 @@ Generated from the `Error` enum in `Dechat/stellar-contracts/src/lib.rs`.
 | 317 | `InvalidAmount` | Constraints | Amount format is invalid |
 | 318 | `SelfReferentialAddress` | Constraints | Address cannot reference itself |
 | 319 | `LimitCapCannotBeLowered` | Constraints | Cannot lower an existing limit cap |
+| 320 | `TokenAlreadyRegistered` | Constraints | `register_token` called for a token that already has a registry entry |
 | 401 | `InsufficientFunds` | Funds & Balances | Contract balance insufficient for withdrawal |
 | 402 | `NoFeesToWithdraw` | Funds & Balances | No accumulated fees to withdraw |
 | 501 | `RequestNotFound` | Withdrawal Queue | Withdrawal request does not exist |
 | 502 | `WithdrawalLocked` | Withdrawal Queue | Withdrawal request not yet unlocked |
+| 503 | `OperatorDailyLimitExceeded` | Withdrawal Queue | `withdraw` by the withdraw operator would exceed its rolling 24h `set_operator_daily_limit` cap |
 | 601 | `ActionNotQueued` | Governance & Timelock | Admin action is not queued |
 | 602 | `ActionNotReady` | Governance & Timelock | Admin action timelock has not elapsed |
 | 605 | `UpgradeNotReady` | Governance & Timelock | Upgrade timelock has not elapsed |
@@ -49,7 +51,7 @@ Generated from the `Error` enum in `Dechat/stellar-contracts/src/lib.rs`.
 | 608 | `DowngradeNotAllowed` | Governance & Timelock | Proposed `new_version` is less than current stored contract version |
 | 701 | `OracleNotSet` | External Services | Oracle not configured |
 | 702 | `OraclePriceInvalid` | External Services | Oracle returned invalid price |
-| 704 | `SlippageTooHigh` | External Services | Slippage is too high for this operation |
+| 704 | `SlippageTooHigh` | External Services | Slippage exceeds `min(max_slippage, SlippageThreshold)` (or `max_slippage` when no threshold is set) |
 | 801 | `WithdrawalQuotaExceeded` | Quota & Migration | Withdrawal quota exceeded |
 | 802 | `MigrationAlreadyComplete` | Quota & Migration | Data migration already complete |
 | 901 | `InvalidNonce` | Replay Protection | Provided nonce is ahead of current (jump) |
@@ -71,9 +73,9 @@ Generated from the `Error` enum in `Dechat/stellar-contracts/src/lib.rs`.
 | Arithmetic | 10 | Overflow prevention |
 | Initialization | 101–104 | Contract lifecycle and state |
 | Authorization | 201–207 | Access control and permissions |
-| Constraints | 301–319 | Amount, limit, and business rule validation |
+| Constraints | 301–320 | Amount, limit, and business rule validation |
 | Funds & Balances | 401–402 | Balance checks and fee management |
-| Withdrawal Queue | 501–502 | Withdrawal request processing |
+| Withdrawal Queue | 501–503 | Withdrawal request processing |
 | Governance & Timelock | 601–602, 605–608 | Admin actions and contract upgrades |
 | External Services | 701–702, 704 | Oracle and pricing integration |
 | Quota & Migration | 801–802 | Quota enforcement and data migrations |
