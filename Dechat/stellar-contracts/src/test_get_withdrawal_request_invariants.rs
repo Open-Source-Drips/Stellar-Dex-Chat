@@ -167,7 +167,7 @@ fn multiple_requests_all_reachable() {
 
     let ids: Vec<u64> = Vec::from_array(
         &env,
-        &[
+        [
             fx.bridge
                 .request_withdrawal(&user, &100, &fx.token_addr, &None, &0),
             fx.bridge
@@ -178,7 +178,7 @@ fn multiple_requests_all_reachable() {
     );
 
     for id in ids.iter() {
-        assert!(fx.bridge.get_withdrawal_request(id).is_some());
+        assert!(fx.bridge.get_withdrawal_request(&id).is_some());
     }
     assert_core_accounting_invariants(&fx);
 }
@@ -231,7 +231,7 @@ proptest! {
         prop_assert_eq!(s.amount, amount);
         prop_assert_eq!(s.risk_tier, tier);
         prop_assert_eq!(s.to, user);
-        prop_assert_eq!(s.token, fx.token_addr);
+        prop_assert_eq!(s.token, fx.token_addr.clone());
         assert_core_accounting_invariants(&fx);
     }
 }

@@ -89,7 +89,7 @@ fn proposal_records_hash_verbatim_and_default_delay() {
     let hash = hash_of(&env, 0xAB);
 
     let seq_before = env.ledger().sequence();
-    bridge.propose_upgrade(&hash);
+    bridge.propose_upgrade(&hash, &1u32);
 
     let p = bridge
         .get_upgrade_proposal()
@@ -126,7 +126,7 @@ fn proposal_honours_a_configured_delay() {
 
     let hash = hash_of(&env, 0x11);
     let seq_before = env.ledger().sequence();
-    bridge.propose_upgrade(&hash);
+    bridge.propose_upgrade(&hash, &1u32);
 
     let p = bridge.get_upgrade_proposal().unwrap();
     assert_eq!(
@@ -142,7 +142,7 @@ fn executable_after_is_always_strictly_in_the_future() {
     env.mock_all_auths();
 
     let (bridge, _admin) = setup_bridge(&env);
-    bridge.propose_upgrade(&hash_of(&env, 0x22));
+    bridge.propose_upgrade(&hash_of(&env, 0x22), &1u32);
 
     let p = bridge.get_upgrade_proposal().unwrap();
     assert!(
@@ -159,12 +159,12 @@ fn reproposing_replaces_rather_than_accumulates() {
     let (bridge, _admin) = setup_bridge(&env);
 
     let first = hash_of(&env, 0x01);
-    bridge.propose_upgrade(&first);
+    bridge.propose_upgrade(&first, &1u32);
     let after_first = bridge.get_upgrade_proposal().unwrap();
     assert_eq!(after_first.wasm_hash, first);
 
     let second = hash_of(&env, 0x02);
-    bridge.propose_upgrade(&second);
+    bridge.propose_upgrade(&second, &1u32);
     let after_second = bridge.get_upgrade_proposal().unwrap();
 
     assert_eq!(
@@ -185,7 +185,7 @@ fn proposing_does_not_disturb_accounting_or_admin() {
     let (bridge, _admin) = setup_bridge(&env);
     let before = state_fingerprint(&bridge);
 
-    bridge.propose_upgrade(&hash_of(&env, 0x33));
+    bridge.propose_upgrade(&hash_of(&env, 0x33), &1u32);
 
     assert_eq!(
         before,
@@ -213,7 +213,7 @@ fn deadline_saturates_on_huge_delay_instead_of_wrapping() {
     bridge.set_upgrade_delay(&u32::MAX);
 
     let seq = env.ledger().sequence();
-    bridge.propose_upgrade(&hash_of(&env, 0x44));
+    bridge.propose_upgrade(&hash_of(&env, 0x44), &1u32);
 
     let p = bridge.get_upgrade_proposal().unwrap();
     assert_eq!(
@@ -237,7 +237,7 @@ fn uninitialised_contract_rejects_and_writes_nothing() {
     let bridge = setup_uninitialised(&env);
     let hash = hash_of(&env, 0x55);
 
-    let result = bridge.try_propose_upgrade(&hash);
+    let result = bridge.try_propose_upgrade(&hash, &1u32);
     assert_eq!(result, Err(Ok(Error::NotInitialized)));
 
     assert!(
@@ -270,7 +270,7 @@ fn non_admin_is_rejected_and_leaves_existing_proposal_untouched() {
     );
 
     let legitimate = hash_of(&env, 0x66);
-    bridge.propose_upgrade(&legitimate);
+    bridge.propose_upgrade(&legitimate, &1u32);
     let before = bridge.get_upgrade_proposal().unwrap();
 
     // Drop the blanket auth mock and authorise only a non-admin address, so the
@@ -279,7 +279,7 @@ fn non_admin_is_rejected_and_leaves_existing_proposal_untouched() {
     env.set_auths(&[]);
 
     let hijack = hash_of(&env, 0x77);
-    let result = bridge.try_propose_upgrade(&hijack);
+    let result = bridge.try_propose_upgrade(&hijack, &1u32);
     assert!(
         result.is_err(),
         "propose_upgrade must reject a caller that cannot satisfy admin auth"
@@ -306,7 +306,7 @@ fn failed_proposal_on_fresh_contract_leaves_no_upgrade_delay_drift() {
 
     let bridge = setup_uninitialised(&env);
 
-    let result = bridge.try_propose_upgrade(&hash_of(&env, 0x88));
+    let result = bridge.try_propose_upgrade(&hash_of(&env, 0x88), &1u32);
     assert!(result.is_err());
 
     assert_eq!(
@@ -330,7 +330,7 @@ proptest! {
         let hash = hash_of(&env, byte);
 
         let seq_before = env.ledger().sequence();
-        bridge.propose_upgrade(&hash);
+        bridge.propose_upgrade(&hash, &1u32);
 
         let p = bridge.get_upgrade_proposal().unwrap();
         prop_assert_eq!(p.wasm_hash, hash);
@@ -349,7 +349,7 @@ proptest! {
         bridge.set_upgrade_delay(&delay);
 
         let seq_before = env.ledger().sequence();
-        bridge.propose_upgrade(&hash_of(&env, 0x99));
+        bridge.propose_upgrade(&hash_of(&env, 0x99), &1u32);
 
         let p = bridge.get_upgrade_proposal().unwrap();
         prop_assert_eq!(p.executable_after, seq_before.saturating_add(delay));
@@ -373,7 +373,7 @@ proptest! {
         bridge.set_upgrade_delay(&delay);
 
         let seq = env.ledger().sequence();
-        bridge.propose_upgrade(&hash_of(&env, 0xAA));
+        bridge.propose_upgrade(&hash_of(&env, 0xAA), &1u32);
 
         let p = bridge.get_upgrade_proposal().unwrap();
         prop_assert_eq!(p.executable_after, seq.saturating_add(delay));
@@ -396,7 +396,7 @@ proptest! {
         let mut last = hash_of(&env, 0);
         for r in 0..rounds {
             last = hash_of(&env, r + 1);
-            bridge.propose_upgrade(&last);
+            bridge.propose_upgrade(&last, &1u32);
         }
 
         let p = bridge.get_upgrade_proposal().unwrap();
@@ -413,7 +413,7 @@ proptest! {
 
         let bridge = setup_uninitialised(&env);
 
-        let result = bridge.try_propose_upgrade(&hash_of(&env, byte));
+        let result = bridge.try_propose_upgrade(&hash_of(&env, byte), &1u32);
         prop_assert_eq!(result, Err(Ok(Error::NotInitialized)));
         prop_assert!(bridge.get_upgrade_proposal().is_none());
     }

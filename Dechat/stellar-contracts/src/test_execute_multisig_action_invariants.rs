@@ -350,11 +350,11 @@ proptest! {
         client.execute_multisig_action(&id);
 
         prop_assert_eq!(client.get_cooldown(), cooldown);
-        prop_assert!(client.get_multisig_proposal(&id).unwrap().executed);
+        prop_assert!(client.get_multisig_proposal(&id).is_none());
 
-        // Single-shot: the replay is refused.
+        // Single-shot: the replay is refused because proposal was deleted.
         let replay = client.try_execute_multisig_action(&id);
-        prop_assert_eq!(replay, Err(Ok(Error::ProposalAlreadyExecuted)));
+        prop_assert_eq!(replay, Err(Ok(Error::ProposalNotFound)));
         prop_assert_eq!(client.get_cooldown(), cooldown);
     }
 

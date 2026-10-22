@@ -1,8 +1,10 @@
 #![no_std]
+#![allow(deprecated)]
 #![allow(clippy::too_many_arguments)]
+#![cfg_attr(test, allow(unused_variables, unused_imports, dead_code, mismatched_lifetime_syntaxes, clippy::duplicated_attributes))]
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, token, xdr::ToXdr, Address,
-    Bytes, BytesN, Env, Symbol, Vec,
+    contract, contracterror, contractevent, contractimpl, contracttype, token,
+    xdr::{FromXdr, ToXdr}, Address, Bytes, BytesN, Env, Symbol, Vec,
 };
 
 pub mod math;
@@ -33,6 +35,8 @@ const MULTISIG_PROPOSAL_EXPIRY: u32 = 518_400; // ~30 days
 /// governance; this constant is the on-chain default used when no override has
 /// been written.
 const DEFAULT_INACTIVITY_THRESHOLD: u32 = 1_555_200; // ~3 months (≈17 280 ledgers/day)
+pub const MIN_INACTIVITY_THRESHOLD: u32 = 1;
+pub const MAX_INACTIVITY_THRESHOLD: u32 = 10_000_000;
 const MIN_UPGRADE_DELAY: u32 = 1_000;
 pub const EVENT_VERSION: u32 = 1;
 pub const ESCROW_STORAGE_VERSION: u32 = 1;
@@ -96,11 +100,7 @@ pub enum Error {
     // --- 600 series: Governance & Timelock ---
     ActionNotQueued = 601,
     ActionNotReady = 602,
-    /// Deprecated: no contract path returns this error.
-    #[deprecated(note = "unused error code; do not use")]
     InactivityThresholdNotReached = 603,
-    /// Deprecated: no contract path returns this error.
-    #[deprecated(note = "unused error code; do not use")]
     NoEmergencyRecoveryAddress = 604,
     UpgradeNotReady = 605,
     UpgradeProposalMissing = 606,
@@ -202,6 +202,19 @@ pub struct TokenConfig {
 pub struct Receipt {
     pub id: BytesN<32>,
     pub depositor: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub ledger: u32,
+    pub reference: Bytes,
+    pub memo_hash: Option<BytesN<32>>,
+}
+
+/// Legacy receipt schema prior to token field addition, retained for backward compatibility.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReceiptV1 {
+    pub id: BytesN<32>,
+    pub depositor: Address,
     pub amount: i128,
     pub ledger: u32,
     pub reference: Bytes,
@@ -288,6 +301,20 @@ pub struct BatchResult {
     pub success_count: u32,
     pub failure_count: u32,
     pub failed_index: Option<u32>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpdateMultisigArgs {
+    pub threshold: u32,
+    pub signers: Vec<Address>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SetLimitArgs {
+    pub token: Address,
+    pub limit: i128,
 }
 
 #[contracttype]
@@ -797,12 +824,39 @@ pub struct MultisigExecutedEvent {
 }
 
 #[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultisigUpdatedEvent {
+    pub version: u32,
+    pub signers: Vec<Address>,
+    pub threshold: u32,
+}
+
+#[contractevent]
 #[derive(Clone, Debug)]
 pub struct EmergencyRecoverySetEvent {
     pub version: u32,
     pub recovery: Address,
     pub cap: i128,
     pub admin: Address,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EmergencyRecoveryEvent {
+    pub version: u32,
+    pub recovery: Address,
+    pub amount: i128,
+    pub admin_last_active: u32,
+    pub triggered_at: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InactivityThresholdSetEvent {
+    pub version: u32,
+    pub admin: Address,
+    pub old_threshold: u32,
+    pub new_threshold: u32,
 }
 
 #[contractevent]
@@ -1097,9 +1151,9 @@ impl FiatBridge {
             total_withdrawn: 0,
             total_liabilities: 0,
         };
-        env.storage()
-            .persistent()
-            .set(&DataKey::TokenRegistry(token.clone()), &config);
+        let reg_key = DataKey::TokenRegistry(token.clone());
+        env.storage().persistent().set(&reg_key, &config);
+        env.storage().persistent().extend_ttl(&reg_key, MIN_TTL, MAX_TTL);
 
         env.storage().instance().set(&DataKey::SchemaVersion, &1u32);
         // ── Issue #1003: initialise contract version to 0 ────────────────
@@ -1348,16 +1402,22 @@ impl FiatBridge {
         let receipt = Receipt {
             id: receipt_id.clone().into(),
             depositor: from.clone(),
+            token: token.clone(),
             amount,
             ledger: env.ledger().sequence(),
             reference,
             memo_hash: memo_hash.clone(),
         };
+        let receipt_hash: BytesN<32> = receipt_id.clone().into();
+        let receipt_key = DataKey::Receipt(receipt_hash.clone());
         env.storage()
             .persistent()
-            .set(&DataKey::Receipt(receipt_id.clone().into()), &receipt);
+            .set(&receipt_key, &receipt);
+        env.storage()
+            .persistent()
+            .extend_ttl(&receipt_key, MIN_TTL, MAX_TTL);
+
         // Store sequential index → hash mapping for enumeration (e.g. migration)
-        let receipt_hash: BytesN<32> = receipt_id.clone().into();
         let index_key = DataKey::ReceiptIndex(receipt_counter);
         env.storage().temporary().set(&index_key, &receipt_hash);
         env.storage()
@@ -1367,13 +1427,41 @@ impl FiatBridge {
             .instance()
             .set(&DataKey::ReceiptCounter, &(receipt_counter + 1));
 
+        // If escrow storage migration has already run, directly write the persistent EscrowRecord
+        // for post-migration deposits and advance the migration cursor.
+        let is_migrated = env
+            .storage()
+            .instance()
+            .get::<_, u32>(&DataKey::EscrowStorageVersion)
+            .unwrap_or(0)
+            >= ESCROW_STORAGE_VERSION;
+
+        if is_migrated {
+            let escrow = EscrowRecord {
+                version: ESCROW_STORAGE_VERSION,
+                depositor: from.clone(),
+                token: token.clone(),
+                amount,
+                ledger: env.ledger().sequence(),
+                migrated: false,
+            };
+            let esc_key = DataKey::EscrowRecord(receipt_counter);
+            env.storage().persistent().set(&esc_key, &escrow);
+            env.storage()
+                .persistent()
+                .extend_ttl(&esc_key, MIN_TTL, MAX_TTL);
+            env.storage()
+                .instance()
+                .set(&DataKey::EscrowMigrationCursor, &(receipt_counter + 1));
+        }
+
         config.total_deposited = config
             .total_deposited
             .checked_add(amount)
             .ok_or(Error::Overflow)?;
-        env.storage()
-            .persistent()
-            .set(&DataKey::TokenRegistry(token.clone()), &config);
+        let reg_key = DataKey::TokenRegistry(token.clone());
+        env.storage().persistent().set(&reg_key, &config);
+        env.storage().persistent().extend_ttl(&reg_key, MIN_TTL, MAX_TTL);
 
         let user_key = DataKey::UserDeposited(from.clone());
         let user_total: i128 = env.storage().instance().get(&user_key).unwrap_or(0);
@@ -1585,9 +1673,9 @@ impl FiatBridge {
             .total_withdrawn
             .checked_add(amount)
             .ok_or(Error::InternalError)?;
-        env.storage()
-            .persistent()
-            .set(&DataKey::TokenRegistry(token.clone()), &config);
+        let reg_key = DataKey::TokenRegistry(token.clone());
+        env.storage().persistent().set(&reg_key, &config);
+        env.storage().persistent().extend_ttl(&reg_key, MIN_TTL, MAX_TTL);
 
         Self::check_invariants(&env, &token)?;
         WithdrawEvent {
@@ -1706,9 +1794,9 @@ impl FiatBridge {
             queued_ledger: env.ledger().sequence(),
             risk_tier,
         };
-        env.storage()
-            .persistent()
-            .set(&DataKey::WithdrawQueue(request_id), &request);
+        let queue_key = DataKey::WithdrawQueue(request_id);
+        env.storage().persistent().set(&queue_key, &request);
+        env.storage().persistent().extend_ttl(&queue_key, MIN_TTL, MAX_TTL);
         let next_id = request_id.checked_add(1).ok_or(Error::Overflow)?;
         env.storage()
             .instance()
@@ -1768,9 +1856,9 @@ impl FiatBridge {
         }
 
         config.total_liabilities = new_liabilities;
-        env.storage()
-            .persistent()
-            .set(&DataKey::TokenRegistry(token.clone()), &config);
+        let reg_key = DataKey::TokenRegistry(token.clone());
+        env.storage().persistent().set(&reg_key, &config);
+        env.storage().persistent().extend_ttl(&reg_key, MIN_TTL, MAX_TTL);
 
         Self::check_invariants(&env, &token)?;
 
@@ -1829,10 +1917,14 @@ impl FiatBridge {
     ) -> Result<(), Error> {
         env.storage().instance().extend_ttl(MIN_TTL, MAX_TTL);
         Self::require_not_paused(&env)?;
+        let queue_key = DataKey::WithdrawQueue(request_id);
+        if env.storage().persistent().has(&queue_key) {
+            env.storage().persistent().extend_ttl(&queue_key, MIN_TTL, MAX_TTL);
+        }
         let mut request: WithdrawRequest = env
             .storage()
             .persistent()
-            .get(&DataKey::WithdrawQueue(request_id))
+            .get(&queue_key)
             .ok_or(Error::RequestNotFound)?;
 
         // Denylist: the recipient may have been sanctioned after queuing.
@@ -1932,7 +2024,10 @@ impl FiatBridge {
             request.amount -= execute_amount;
             env.storage()
                 .persistent()
-                .set(&DataKey::WithdrawQueue(request_id), &request);
+                .set(&queue_key, &request);
+            env.storage()
+                .persistent()
+                .extend_ttl(&queue_key, MIN_TTL, MAX_TTL);
         }
 
         let mut config: TokenConfig = env
@@ -1944,9 +2039,13 @@ impl FiatBridge {
             .total_withdrawn
             .checked_add(execute_amount)
             .ok_or(Error::InternalError)?;
+        let reg_key = DataKey::TokenRegistry(request.token.clone());
         env.storage()
             .persistent()
-            .set(&DataKey::TokenRegistry(request.token.clone()), &config);
+            .set(&reg_key, &config);
+        env.storage()
+            .persistent()
+            .extend_ttl(&reg_key, MIN_TTL, MAX_TTL);
         Self::release_liability(&env, &request.token, execute_amount)?;
 
         Self::check_invariants(&env, &request.token)?;
@@ -2171,9 +2270,9 @@ impl FiatBridge {
         Self::validate_and_increment_set_limit_nonce(&env, &admin, nonce)?;
 
         config.limit = limit;
-        env.storage()
-            .persistent()
-            .set(&DataKey::TokenRegistry(token.clone()), &config);
+        let reg_key = DataKey::TokenRegistry(token.clone());
+        env.storage().persistent().set(&reg_key, &config);
+        env.storage().persistent().extend_ttl(&reg_key, MIN_TTL, MAX_TTL);
 
         SetLimitEvent {
             version: EVENT_VERSION,
@@ -2672,12 +2771,8 @@ impl FiatBridge {
         amount: i128,
     ) -> Result<i128, Error> {
         let fiat_limit = env.storage().instance().get::<_, i128>(&DataKey::FiatLimit);
-
-        if fiat_limit.is_none() || fiat_limit == Some(0) {
-            return Ok(0);
-        }
-
         let oracle_addr = env.storage().instance().get::<_, Address>(&DataKey::Oracle);
+
         let price = if let Some(addr) = oracle_addr {
             let oracle = crate::oracle::OracleClient::new(env, &addr);
             let p = oracle.get_price(token).unwrap_or(0);
@@ -2685,34 +2780,38 @@ impl FiatBridge {
                 return Err(Error::OraclePriceInvalid);
             }
             p
-        } else {
+        } else if fiat_limit.is_some() && fiat_limit != Some(0) {
             return Err(Error::OracleNotSet);
+        } else {
+            0
         };
 
         if let Some(limit) = fiat_limit {
-            // ── Issue #220: use precision-safe fixed-point math ───────────
-            let usd_cents = crate::math::mul_div_floor(amount, price, ORACLE_PRICE_DECIMALS / 100);
-            let curr = env.ledger().sequence();
-            let mut vol: UserDailyVolume = env
-                .storage()
-                .instance()
-                .get(&DataKey::UserDailyVolume(depositor.clone()))
-                .unwrap_or(UserDailyVolume {
-                    usd_cents: 0,
-                    window_start: curr,
-                });
+            if limit > 0 {
+                // ── Issue #220: use precision-safe fixed-point math ───────────
+                let usd_cents = crate::math::mul_div_floor(amount, price, ORACLE_PRICE_DECIMALS / 100);
+                let curr = env.ledger().sequence();
+                let mut vol: UserDailyVolume = env
+                    .storage()
+                    .instance()
+                    .get(&DataKey::UserDailyVolume(depositor.clone()))
+                    .unwrap_or(UserDailyVolume {
+                        usd_cents: 0,
+                        window_start: curr,
+                    });
 
-            if curr >= vol.window_start + WINDOW_LEDGERS {
-                vol.usd_cents = 0;
-                vol.window_start = curr;
+                if curr >= vol.window_start + WINDOW_LEDGERS {
+                    vol.usd_cents = 0;
+                    vol.window_start = curr;
+                }
+                if vol.usd_cents + usd_cents > limit {
+                    return Err(Error::ExceedsFiatLimit);
+                }
+                vol.usd_cents += usd_cents;
+                env.storage()
+                    .instance()
+                    .set(&DataKey::UserDailyVolume(depositor.clone()), &vol);
             }
-            if vol.usd_cents + usd_cents > limit {
-                return Err(Error::ExceedsFiatLimit);
-            }
-            vol.usd_cents += usd_cents;
-            env.storage()
-                .instance()
-                .set(&DataKey::UserDailyVolume(depositor.clone()), &vol);
         }
 
         Ok(price)
@@ -2849,7 +2948,7 @@ impl FiatBridge {
 
     pub fn cancel_admin_action(env: Env, id: u64) -> Result<(), Error> {
         let _admin = Self::require_admin(&env)?;
-        let action: QueuedAdminAction = env
+        let _action: QueuedAdminAction = env
             .storage()
             .persistent()
             .get(&DataKey::QueuedAdminAction(id))
@@ -2958,10 +3057,8 @@ impl FiatBridge {
         // cap. max_operators == 0 is the "unlimited" sentinel and bypasses the
         // check. This guard must come after prune_inactive_operators_internal
         // so operators.len() reflects the true live count.
-        if active && !was_active {
-            if max_operators > 0 && operators.len() >= max_operators {
-                return Err(Error::OperatorCapReached);
-            }
+        if active && !was_active && max_operators > 0 && operators.len() >= max_operators {
+            return Err(Error::OperatorCapReached);
         }
 
         env.storage()
@@ -3042,16 +3139,49 @@ impl FiatBridge {
         Ok(())
     }
 
-    /// Set the inactivity threshold for operator pruning.
+    /// Set the inactivity threshold for operator pruning and emergency recovery.
     ///
     /// Operators who have not sent a heartbeat or been activated within this
     /// number of ledgers will be pruned by `prune_inactive_operators`.
+    /// When the admin has been inactive for this many ledgers, emergency recovery
+    /// may be triggered.
     pub fn set_inactivity_threshold(env: Env, threshold: u32) -> Result<(), Error> {
-        let _admin = Self::require_admin(&env)?;
+        let admin = Self::require_admin(&env)?;
+        if !(MIN_INACTIVITY_THRESHOLD..=MAX_INACTIVITY_THRESHOLD).contains(&threshold) {
+            return Err(Error::InvalidAmount);
+        }
+        let old_threshold = env
+            .storage()
+            .instance()
+            .get(&DataKey::InactivityThreshold)
+            .unwrap_or(DEFAULT_INACTIVITY_THRESHOLD);
         env.storage()
             .instance()
             .set(&DataKey::InactivityThreshold, &threshold);
+        InactivityThresholdSetEvent {
+            version: EVENT_VERSION,
+            admin,
+            old_threshold,
+            new_threshold: threshold,
+        }
+        .publish(&env);
         Ok(())
+    }
+
+    /// Return the currently configured inactivity threshold, or DEFAULT_INACTIVITY_THRESHOLD.
+    pub fn get_inactivity_threshold(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::InactivityThreshold)
+            .unwrap_or(DEFAULT_INACTIVITY_THRESHOLD)
+    }
+
+    /// Return the ledger sequence of the most recent admin-authenticated action.
+    pub fn get_last_admin_action_ledger(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::LastAdminActionLedger)
+            .unwrap_or(0)
     }
 
     /// Get the current set_operator nonce for an admin.
@@ -3086,9 +3216,11 @@ impl FiatBridge {
         let _admin = Self::require_admin(&env)?;
         let denied_key = DataKey::Denied(address.clone());
         if env.storage().persistent().has(&denied_key) {
+            env.storage().persistent().extend_ttl(&denied_key, MIN_TTL, MAX_TTL);
             return Ok(());
         }
         env.storage().persistent().set(&denied_key, &true);
+        env.storage().persistent().extend_ttl(&denied_key, MIN_TTL, MAX_TTL);
 
         // Append to denied-address index for enumeration
         let count: u64 = env
@@ -3099,9 +3231,11 @@ impl FiatBridge {
         if count == u64::MAX {
             return Err(Error::MaxDeniedReached);
         }
+        let index_key = DataKey::DeniedIndex(count);
         env.storage()
             .persistent()
-            .set(&DataKey::DeniedIndex(count), &Some(address.clone()));
+            .set(&index_key, &Some(address.clone()));
+        env.storage().persistent().extend_ttl(&index_key, MIN_TTL, MAX_TTL);
         env.storage().instance().set(
             &DataKey::DeniedCount,
             &(count.checked_add(1).ok_or(Error::Overflow)?),
@@ -3380,17 +3514,16 @@ impl FiatBridge {
             // - They have no heartbeat record, OR
             // - The time since their last heartbeat exceeds the threshold
             // - We use max(last_heartbeat, activated_at) to handle operators who never sent a heartbeat
-            let last_activity = match (heartbeat, activated_at) {
-                (Some(hb), Some(aa)) => hb.max(aa),
-                (Some(hb), None) => hb,
-                (None, Some(aa)) => aa,
-                (None, None) => 0, // Should not happen for active operators, but treat as inactive
+            let last_activity: Option<u32> = match (heartbeat, activated_at) {
+                (Some(hb), Some(aa)) => Some(hb.max(aa)),
+                (Some(hb), None) => Some(hb),
+                (None, Some(aa)) => Some(aa),
+                (None, None) => None,
             };
 
-            let is_inactive = if last_activity == 0 {
-                true // No activity record - treat as inactive
-            } else {
-                current_ledger.saturating_sub(last_activity) > threshold
+            let is_inactive = match last_activity {
+                None => true,
+                Some(activity) => current_ledger.saturating_sub(activity) > threshold,
             };
 
             if is_inactive {
@@ -3532,7 +3665,11 @@ impl FiatBridge {
                     .ok_or(Error::Overflow)?;
             }
         }
-        let denied = env.storage().persistent().has(&DataKey::Denied(address));
+        let denied_key = DataKey::Denied(address);
+        let denied = env.storage().persistent().has(&denied_key);
+        if denied {
+            env.storage().persistent().extend_ttl(&denied_key, MIN_TTL, MAX_TTL);
+        }
         Ok(denied)
     }
 
@@ -3656,6 +3793,7 @@ impl FiatBridge {
         let key = DataKey::FeeVault(token.clone());
         let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
         env.storage().persistent().set(&key, &(current + amount));
+        env.storage().persistent().extend_ttl(&key, MIN_TTL, MAX_TTL);
 
         FeeAccruedEvent {
             version: EVENT_VERSION,
@@ -3686,21 +3824,27 @@ impl FiatBridge {
 
     pub fn get_accrued_fees(env: Env, token: Address) -> i128 {
         // Boundary check: ensure token is whitelisted/registered
+        let reg_key = DataKey::TokenRegistry(token.clone());
         if !env
             .storage()
             .persistent()
-            .has(&DataKey::TokenRegistry(token.clone()))
+            .has(&reg_key)
         {
             return 0;
         }
+        env.storage().persistent().extend_ttl(&reg_key, MIN_TTL, MAX_TTL);
 
         // Edge case: clamp to 0 — fees are a non-negative accumulator and a
         // negative stored value would indicate corruption, not a real debt.
+        let fee_key = DataKey::FeeVault(token);
         let fees: i128 = env
             .storage()
             .persistent()
-            .get(&DataKey::FeeVault(token))
+            .get(&fee_key)
             .unwrap_or(0);
+        if env.storage().persistent().has(&fee_key) {
+            env.storage().persistent().extend_ttl(&fee_key, MIN_TTL, MAX_TTL);
+        }
         fees.max(0)
     }
 
@@ -3726,19 +3870,26 @@ impl FiatBridge {
             return Err(Error::Unauthorized);
         }
 
+        let reg_key = DataKey::TokenRegistry(token.clone());
         if !env
             .storage()
             .persistent()
-            .has(&DataKey::TokenRegistry(token.clone()))
+            .has(&reg_key)
         {
             return Ok(0);
         }
+        env.storage().persistent().extend_ttl(&reg_key, MIN_TTL, MAX_TTL);
 
-        Ok(env
+        let fee_key = DataKey::FeeVault(token);
+        let fees: i128 = env
             .storage()
             .persistent()
-            .get(&DataKey::FeeVault(token))
-            .unwrap_or(0))
+            .get(&fee_key)
+            .unwrap_or(0);
+        if env.storage().persistent().has(&fee_key) {
+            env.storage().persistent().extend_ttl(&fee_key, MIN_TTL, MAX_TTL);
+        }
+        Ok(fees)
     }
 
     /// Withdraws accrued protocol fees for a specific token to the fee recipient.
@@ -3829,6 +3980,7 @@ impl FiatBridge {
         token_client.transfer(&env.current_contract_address(), &recipient, &amount);
 
         env.storage().persistent().set(&key, &(current - amount));
+        env.storage().persistent().extend_ttl(&key, MIN_TTL, MAX_TTL);
         // Commit the nonce advance now that every failure path has passed.
         Self::consume_nonce(&env, nonce_key, nonce)?;
         FeeWithdrawnEvent {
@@ -3893,6 +4045,7 @@ impl FiatBridge {
             let token_client = token::Client::new(&env, &token);
             token_client.transfer(&contract, &recipient, &current);
             env.storage().persistent().set(&key, &0i128);
+            env.storage().persistent().extend_ttl(&key, MIN_TTL, MAX_TTL);
             FeeWithdrawnEvent {
                 version: EVENT_VERSION,
                 to: recipient.clone(),
@@ -4203,7 +4356,12 @@ impl FiatBridge {
     }
 
     pub fn get_withdrawal_request(env: Env, id: u64) -> Option<WithdrawRequest> {
-        env.storage().persistent().get(&DataKey::WithdrawQueue(id))
+        let key = DataKey::WithdrawQueue(id);
+        let req = env.storage().persistent().get(&key);
+        if req.is_some() {
+            env.storage().persistent().extend_ttl(&key, MIN_TTL, MAX_TTL);
+        }
+        req
     }
 
     pub fn get_wq_depth(env: Env) -> u64 {
@@ -4240,18 +4398,6 @@ impl FiatBridge {
         env.storage()
             .instance()
             .get(&DataKey::PendingRenounceLedger)
-    }
-
-    pub fn get_queued_admin_action(env: Env, id: u64) -> QueuedAdminAction {
-        env.storage()
-            .persistent()
-            .get(&DataKey::QueuedAdminAction(id))
-            .unwrap_or(QueuedAdminAction {
-                action_type: Symbol::new(&env, ""),
-                payload: Bytes::new(&env),
-                queued_ledger: 0,
-                target_ledger: 0,
-            })
     }
 
     #[deprecated(note = "use get_config_snapshot instead")]
@@ -4561,16 +4707,21 @@ impl FiatBridge {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+        env.storage()
+            .instance()
+            .set(&DataKey::LastAdminActionLedger, &env.ledger().sequence());
         Ok(admin)
     }
 
     /// Returns [`Error::AddressDenied`] when `address` is on the denylist.
     fn reject_if_denied(env: &Env, address: &Address) -> Result<(), Error> {
+        let key = DataKey::Denied(address.clone());
         if env
             .storage()
             .persistent()
-            .has(&DataKey::Denied(address.clone()))
+            .has(&key)
         {
+            env.storage().persistent().extend_ttl(&key, MIN_TTL, MAX_TTL);
             return Err(Error::AddressDenied);
         }
         Ok(())
@@ -4616,10 +4767,11 @@ impl FiatBridge {
     /// `cancel_withdrawal`, and `reclaim_expired_withdrawal`, which used to
     /// each do this with an unchecked `-=`.
     fn release_liability(env: &Env, token: &Address, amount: i128) -> Result<(), Error> {
+        let reg_key = DataKey::TokenRegistry(token.clone());
         let mut config: TokenConfig = env
             .storage()
             .persistent()
-            .get(&DataKey::TokenRegistry(token.clone()))
+            .get(&reg_key)
             .ok_or(Error::TokenNotWhitelisted)?;
         config.total_liabilities = config
             .total_liabilities
@@ -4627,7 +4779,8 @@ impl FiatBridge {
             .ok_or(Error::Overflow)?;
         env.storage()
             .persistent()
-            .set(&DataKey::TokenRegistry(token.clone()), &config);
+            .set(&reg_key, &config);
+        env.storage().persistent().extend_ttl(&reg_key, MIN_TTL, MAX_TTL);
         Ok(())
     }
 
@@ -4734,16 +4887,6 @@ impl FiatBridge {
     pub fn migrate_escrow(env: Env, batch_size: u32) -> Result<u32, Error> {
         let _admin = Self::require_admin(&env)?;
 
-        let current_version: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::EscrowStorageVersion)
-            .unwrap_or(0);
-
-        if current_version >= ESCROW_STORAGE_VERSION {
-            return Err(Error::MigrationAlreadyComplete);
-        }
-
         let cursor: u64 = env
             .storage()
             .instance()
@@ -4756,6 +4899,10 @@ impl FiatBridge {
             .get(&DataKey::ReceiptCounter)
             .unwrap_or(0);
 
+        if cursor >= receipt_counter {
+            return Err(Error::MigrationAlreadyComplete);
+        }
+
         let mut migrated_count: u32 = 0;
         let mut current_id = cursor;
 
@@ -4766,28 +4913,53 @@ impl FiatBridge {
                 .temporary()
                 .get::<_, BytesN<32>>(&DataKey::ReceiptIndex(current_id))
             {
+                let receipt_key = DataKey::Receipt(receipt_hash);
                 if let Some(receipt) = env
                     .storage()
                     .persistent()
-                    .get::<_, Receipt>(&DataKey::Receipt(receipt_hash))
+                    .get::<_, Receipt>(&receipt_key)
                 {
                     let escrow = EscrowRecord {
                         version: ESCROW_STORAGE_VERSION,
                         depositor: receipt.depositor,
-                        token: env
-                            .storage()
-                            .instance()
-                            .get(&DataKey::Token)
-                            .unwrap_or_else(|| {
-                                Address::from_string(&soroban_sdk::String::from_str(&env, ""))
-                            }),
+                        token: receipt.token,
                         amount: receipt.amount,
                         ledger: receipt.ledger,
                         migrated: true,
                     };
+                    let esc_key = DataKey::EscrowRecord(current_id);
                     env.storage()
                         .persistent()
-                        .set(&DataKey::EscrowRecord(current_id), &escrow);
+                        .set(&esc_key, &escrow);
+                    env.storage()
+                        .persistent()
+                        .extend_ttl(&esc_key, MIN_TTL, MAX_TTL);
+                    migrated_count += 1;
+                } else if let Some(receipt_v1) = env
+                    .storage()
+                    .persistent()
+                    .get::<_, ReceiptV1>(&receipt_key)
+                {
+                    let fallback_token = env
+                        .storage()
+                        .instance()
+                        .get(&DataKey::Token)
+                        .unwrap_or_else(|| env.current_contract_address());
+                    let escrow = EscrowRecord {
+                        version: ESCROW_STORAGE_VERSION,
+                        depositor: receipt_v1.depositor,
+                        token: fallback_token,
+                        amount: receipt_v1.amount,
+                        ledger: receipt_v1.ledger,
+                        migrated: true,
+                    };
+                    let esc_key = DataKey::EscrowRecord(current_id);
+                    env.storage()
+                        .persistent()
+                        .set(&esc_key, &escrow);
+                    env.storage()
+                        .persistent()
+                        .extend_ttl(&esc_key, MIN_TTL, MAX_TTL);
                     migrated_count += 1;
                 }
             }
@@ -4817,7 +4989,14 @@ impl FiatBridge {
     /// Look up a migrated escrow position by its sequential deposit id.
     /// Returns None if not yet migrated or missing. Plain storage read (no auth required).
     pub fn get_escrow_record(env: Env, id: u64) -> Option<EscrowRecord> {
-        env.storage().persistent().get(&DataKey::EscrowRecord(id))
+        let esc_key = DataKey::EscrowRecord(id);
+        let rec = env.storage().persistent().get(&esc_key);
+        if rec.is_some() {
+            env.storage()
+                .persistent()
+                .extend_ttl(&esc_key, MIN_TTL, MAX_TTL);
+        }
+        rec
     }
 
     /// Returns the current migration cursor position (how many receipts have been migrated).
@@ -4833,30 +5012,44 @@ impl FiatBridge {
     ///
     /// This function allows manual control over the migration cursor position.
     /// It is primarily intended for recovery scenarios where the cursor needs
-    /// to be adjusted due to migration issues.
+    /// to be adjusted due to migration issues (e.g. rewinding to 0).
     ///
     /// # Parameters
     ///
-    /// - `cursor` – the new cursor value to set
+    /// - `cursor` – the new cursor value to set (`u64`)
     ///
     /// # Errors
     ///
     /// - `Error::NotInitialized` – if the contract has not been initialized
     /// - `Error::Unauthorized` – if the caller is not the admin
-    /// - `Error::InvalidAmount` – if the cursor is zero, negative, or i128::MAX
-    pub fn set_migration_cursor(env: Env, cursor: i128) -> Result<(), Error> {
+    /// - `Error::InvalidAmount` – if the cursor is greater than `ReceiptCounter`
+    pub fn set_migration_cursor(env: Env, cursor: u64) -> Result<(), Error> {
         let _admin = Self::require_admin(&env)?;
 
-        if cursor <= 0 {
-            return Err(Error::InvalidAmount);
-        }
-        if cursor == i128::MAX {
+        let receipt_counter: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ReceiptCounter)
+            .unwrap_or(0);
+
+        if cursor > receipt_counter {
             return Err(Error::InvalidAmount);
         }
 
         env.storage()
             .instance()
-            .set(&DataKey::EscrowMigrationCursor, &(cursor as u64));
+            .set(&DataKey::EscrowMigrationCursor, &cursor);
+
+        if cursor < receipt_counter {
+            env.storage()
+                .instance()
+                .set(&DataKey::EscrowStorageVersion, &0u32);
+        } else {
+            env.storage()
+                .instance()
+                .set(&DataKey::EscrowStorageVersion, &ESCROW_STORAGE_VERSION);
+        }
+
         Ok(())
     }
 
@@ -4891,7 +5084,7 @@ impl FiatBridge {
         let mut first_failed_index: Option<u32> = None;
 
         for (idx, op) in operations.iter().enumerate() {
-            let result = Self::execute_single_admin_op(&env, &op);
+            let result = Self::execute_single_admin_op_internal(&env, &op, false);
             if result.is_err() {
                 BatchFailEvent {
                     version: EVENT_VERSION,
@@ -4927,6 +5120,14 @@ impl FiatBridge {
     }
 
     fn execute_single_admin_op(env: &Env, op: &BatchAdminOp) -> Result<(), Error> {
+        Self::execute_single_admin_op_internal(env, op, false)
+    }
+
+    fn execute_single_admin_op_internal(
+        env: &Env,
+        op: &BatchAdminOp,
+        is_multisig: bool,
+    ) -> Result<(), Error> {
         let op_name = &op.op_type;
 
         if *op_name == Symbol::new(env, "set_cooldown") {
@@ -4981,10 +5182,43 @@ impl FiatBridge {
             .publish(env);
             Ok(())
         } else if *op_name == Symbol::new(env, "set_limit") {
-            // Payload: [Address(token), i128(limit)]
-            // For simplicity in multisig mockup, we might need a better encoding or specialized ops.
-            // But let's add the basic admin ones first.
-            Err(Error::InternalError)
+            let (token, limit) = if let Ok(args) = SetLimitArgs::from_xdr(env, &op.payload) {
+                (args.token, args.limit)
+            } else if let Ok(tup) = <(Address, i128)>::from_xdr(env, &op.payload) {
+                (tup.0, tup.1)
+            } else {
+                return Err(Error::InternalError);
+            };
+
+            if limit <= 0 {
+                return Err(Error::ZeroAmount);
+            }
+            let max_cap: i128 = env
+                .storage()
+                .instance()
+                .get(&DataKey::LimitMaxCap)
+                .unwrap_or(i128::MAX);
+            if limit > max_cap {
+                return Err(Error::ExceedsLimitMaxCap);
+            }
+            let mut config: TokenConfig = env
+                .storage()
+                .persistent()
+                .get(&DataKey::TokenRegistry(token.clone()))
+                .ok_or(Error::TokenNotWhitelisted)?;
+            config.limit = limit;
+            let reg_key = DataKey::TokenRegistry(token.clone());
+            env.storage().persistent().set(&reg_key, &config);
+            env.storage().persistent().extend_ttl(&reg_key, MIN_TTL, MAX_TTL);
+            SetLimitEvent {
+                version: EVENT_VERSION,
+                token,
+                limit,
+                by: env.current_contract_address(),
+                ledger: env.ledger().sequence(),
+            }
+            .publish(env);
+            Ok(())
         } else if *op_name == Symbol::new(env, "pause") {
             env.storage().instance().set(&DataKey::Paused, &true);
             Ok(())
@@ -4992,10 +5226,49 @@ impl FiatBridge {
             env.storage().instance().set(&DataKey::Paused, &false);
             Ok(())
         } else if *op_name == Symbol::new(env, "update_multisig") {
-            // Special op to update signers and threshold
-            // Payload: [threshold(u32), signers(Vec<Address>)]
-            // This needs custom decoding.
-            Err(Error::InternalError)
+            // Executable ONLY through a multisig proposal
+            if !is_multisig {
+                return Err(Error::Unauthorized);
+            }
+
+            let (threshold, signers) = if let Ok(args) = UpdateMultisigArgs::from_xdr(env, &op.payload) {
+                (args.threshold, args.signers)
+            } else if let Ok(tup) = <(u32, Vec<Address>)>::from_xdr(env, &op.payload) {
+                (tup.0, tup.1)
+            } else {
+                return Err(Error::InternalError);
+            };
+
+            if signers.is_empty() {
+                return Err(Error::InvalidThreshold);
+            }
+            if signers.len() > MAX_SIGNERS {
+                return Err(Error::MaxSignersReached);
+            }
+            if threshold == 0 || threshold > signers.len() {
+                return Err(Error::InvalidThreshold);
+            }
+
+            // Ensure no duplicate signers
+            let mut seen = Vec::<Address>::new(env);
+            for s in signers.iter() {
+                if seen.contains(&s) {
+                    return Err(Error::DuplicateSigner);
+                }
+                seen.push_back(s);
+            }
+
+            env.storage().instance().set(&DataKey::Signers, &signers);
+            env.storage().instance().set(&DataKey::Threshold, &threshold);
+
+            MultisigUpdatedEvent {
+                version: EVENT_VERSION,
+                signers,
+                threshold,
+            }
+            .publish(env);
+
+            Ok(())
         } else {
             Err(Error::InternalError)
         }
@@ -5662,7 +5935,7 @@ impl FiatBridge {
         let current_ledger = env.ledger().sequence();
         if current_ledger
             .checked_sub(proposal.created_at)
-            .map_or(true, |age| age > MULTISIG_PROPOSAL_EXPIRY)
+            .is_none_or(|age| age > MULTISIG_PROPOSAL_EXPIRY)
         {
             return Err(Error::ProposalExpired);
         }
@@ -5707,7 +5980,7 @@ impl FiatBridge {
         let current_ledger = env.ledger().sequence();
         if current_ledger
             .checked_sub(proposal.created_at)
-            .map_or(true, |age| age > MULTISIG_PROPOSAL_EXPIRY)
+            .is_none_or(|age| age > MULTISIG_PROPOSAL_EXPIRY)
         {
             return Err(Error::ProposalExpired);
         }
@@ -5757,7 +6030,7 @@ impl FiatBridge {
         let current_ledger = env.ledger().sequence();
         if current_ledger
             .checked_sub(proposal.created_at)
-            .map_or(true, |age| age > MULTISIG_PROPOSAL_EXPIRY)
+            .is_none_or(|age| age > MULTISIG_PROPOSAL_EXPIRY)
         {
             return Err(Error::ProposalExpired);
         }
@@ -5767,12 +6040,27 @@ impl FiatBridge {
             .instance()
             .get(&DataKey::Threshold)
             .ok_or(Error::NotInitialized)?;
-        if proposal.approvals.len() < threshold {
+
+        let current_signers: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Signers)
+            .ok_or(Error::NotInitialized)?;
+
+        // Recount approvals dynamically against active signers
+        let mut valid_approvals_count: u32 = 0;
+        for a in proposal.approvals.iter() {
+            if current_signers.contains(&a) {
+                valid_approvals_count = valid_approvals_count.saturating_add(1);
+            }
+        }
+
+        if valid_approvals_count < threshold {
             return Err(Error::ThresholdNotMet);
         }
 
-        // Execute the action
-        Self::execute_single_admin_op(&env, &proposal.action)?;
+        // Execute the action (with is_multisig = true)
+        Self::execute_single_admin_op_internal(&env, &proposal.action, true)?;
 
         // Delete the proposal after successful execution
         env.storage().persistent().remove(&proposal_key);
@@ -5804,6 +6092,40 @@ impl FiatBridge {
             .instance()
             .get(&DataKey::Threshold)
             .unwrap_or(0)
+    }
+
+    /// Direct execution of multisig rotation is forbidden.
+    /// Rotation can only occur through a matured multisig proposal.
+    pub fn update_multisig(
+        _env: Env,
+        _signers: Vec<Address>,
+        _threshold: u32,
+    ) -> Result<(), Error> {
+        Err(Error::Unauthorized)
+    }
+
+    pub fn build_update_multisig_op(
+        env: &Env,
+        signers: Vec<Address>,
+        threshold: u32,
+    ) -> BatchAdminOp {
+        let args = UpdateMultisigArgs { threshold, signers };
+        BatchAdminOp {
+            op_type: Symbol::new(env, "update_multisig"),
+            payload: args.to_xdr(env),
+        }
+    }
+
+    pub fn build_set_limit_op(
+        env: &Env,
+        token: Address,
+        limit: i128,
+    ) -> BatchAdminOp {
+        let args = SetLimitArgs { token, limit };
+        BatchAdminOp {
+            op_type: Symbol::new(env, "set_limit"),
+            payload: args.to_xdr(env),
+        }
     }
 
     // ── Missing methods referenced by tests ──────────────────────────────
@@ -5868,6 +6190,9 @@ impl FiatBridge {
         if cap <= 0 {
             return Err(Error::ZeroAmount);
         }
+        if recovery == env.current_contract_address() {
+            return Err(Error::InvalidRecipient);
+        }
         // Cap must not exceed the current bridge limit.
         let tok = env
             .storage()
@@ -5902,6 +6227,94 @@ impl FiatBridge {
     /// Return the emergency recovery withdrawal cap, if set.
     pub fn get_emergency_recovery_cap(env: Env) -> Option<i128> {
         env.storage().instance().get(&DataKey::EmergencyRecoveryCap)
+    }
+
+    /// Return the configured emergency recovery address, if set.
+    pub fn get_emergency_recovery_address(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::EmergencyRecoveryAddress)
+    }
+
+    /// Trigger emergency recovery when the admin has been inactive for longer than InactivityThreshold.
+    ///
+    /// Moves at most EmergencyRecoveryCap to EmergencyRecoveryAddress and emits EmergencyRecoveryTriggeredEvent.
+    pub fn trigger_emergency_recovery(env: Env) -> Result<(), Error> {
+        let token = env
+            .storage()
+            .instance()
+            .get::<_, Address>(&DataKey::Token)
+            .ok_or(Error::NotInitialized)?;
+
+        let recovery = env
+            .storage()
+            .instance()
+            .get::<_, Address>(&DataKey::EmergencyRecoveryAddress)
+            .ok_or(Error::NoEmergencyRecoveryAddress)?;
+
+        let cap: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::EmergencyRecoveryCap)
+            .ok_or(Error::NoEmergencyRecoveryAddress)?;
+
+        let last_admin_ledger: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::LastAdminActionLedger)
+            .unwrap_or(0);
+
+        let threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::InactivityThreshold)
+            .unwrap_or(DEFAULT_INACTIVITY_THRESHOLD);
+
+        let current_ledger = env.ledger().sequence();
+        let elapsed = current_ledger.saturating_sub(last_admin_ledger);
+
+        if elapsed < threshold {
+            return Err(Error::InactivityThresholdNotReached);
+        }
+
+        Self::reject_if_denied(&env, &recovery)?;
+
+        let token_client = token::Client::new(&env, &token);
+        let contract_balance = token_client.balance(&env.current_contract_address());
+        let transfer_amount = contract_balance.min(cap);
+
+        if transfer_amount > 0 {
+            token_client.transfer(
+                &env.current_contract_address(),
+                &recovery,
+                &transfer_amount,
+            );
+
+            if let Some(mut config) = env
+                .storage()
+                .persistent()
+                .get::<_, TokenConfig>(&DataKey::TokenRegistry(token.clone()))
+            {
+                config.total_withdrawn = config
+                    .total_withdrawn
+                    .checked_add(transfer_amount)
+                    .ok_or(Error::InternalError)?;
+                let reg_key = DataKey::TokenRegistry(token.clone());
+                env.storage()
+                    .persistent()
+                    .set(&reg_key, &config);
+                env.storage().persistent().extend_ttl(&reg_key, MIN_TTL, MAX_TTL);
+            }
+        }
+
+        EmergencyRecoveryEvent {
+            version: EVENT_VERSION,
+            recovery,
+            amount: transfer_amount,
+            admin_last_active: last_admin_ledger,
+            triggered_at: current_ledger,
+        }
+        .publish(&env);
+
+        Ok(())
     }
 
     /// Return the pending admin transfer info `(new_admin, proposed_at_ledger)`, if any.
@@ -6078,7 +6491,6 @@ mod test_migrate_escrow_invariants;
 mod test_fee_withdrawal_nonce;
 
 #[cfg(test)]
-#[cfg(test)]
 mod test_view_functions_emit_no_events;
 
 #[cfg(test)]
@@ -6104,3 +6516,12 @@ mod test_denylist_invariants;
 
 #[cfg(test)]
 mod test_token_allowlist_invariants;
+
+#[cfg(test)]
+mod test_emergency_recovery;
+
+#[cfg(test)]
+mod test_ttl_advance;
+
+#[cfg(test)]
+mod test_multisig_update;

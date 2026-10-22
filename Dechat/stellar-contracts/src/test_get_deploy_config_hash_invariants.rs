@@ -153,15 +153,14 @@ fn test_deploy_config_hash_length_is_32_bytes() {
 proptest! {
     #[test]
     fn deploy_config_hash_consistent_for_valid_init_params(
-        deposit_limit in 100i128..=10_000_000i128,
-        fee_bps in 0u32..=1000u32,
-        timelock in 0u64..=86400u64,
+        deposit_limit in 1000i128..=10_000_000i128,
+        min_deposit in 1i128..=100i128,
     ) {
         let env = Env::default();
         env.mock_all_auths();
 
         let admin = Address::generate(&env);
-        let (token_client, token_admin) = create_token_contract(&env, &admin);
+        let (token_client, _token_admin) = create_token_contract(&env, &admin);
         let token_address = token_client.address.clone();
 
         let contract_id = env.register(FiatBridge, ());
@@ -170,7 +169,7 @@ proptest! {
         let mut signers = Vec::new(&env);
         signers.push_back(admin.clone());
 
-        client.init(&admin, &token_address, &deposit_limit, &fee_bps, &signers, &timelock, &0);
+        client.init(&admin, &token_address, &deposit_limit, &min_deposit, &signers, &1u32, &0u64);
 
         // Hash should be Some for all valid init parameters
         let hash = client.get_deploy_config_hash();

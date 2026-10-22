@@ -63,8 +63,8 @@ fn test_batch_heartbeat_success_multiple_operators() {
     let op3 = Address::generate(&env);
 
     bridge.set_operator(&op1, &true, &0);
-    bridge.set_operator(&op2, &true, &0);
-    bridge.set_operator(&op3, &true, &0);
+    bridge.set_operator(&op2, &true, &1);
+    bridge.set_operator(&op3, &true, &2);
 
     assert_eq!(bridge.get_operator_nonce(&op1), 1);
     assert_eq!(bridge.get_operator_nonce(&op2), 1);
@@ -124,8 +124,8 @@ fn test_batch_heartbeat_partial_failure() {
     let op3 = Address::generate(&env);
 
     bridge.set_operator(&op1, &true, &0);
-    bridge.set_operator(&op2, &true, &0);
-    bridge.set_operator(&op3, &true, &0);
+    bridge.set_operator(&op2, &true, &1);
+    bridge.set_operator(&op3, &true, &2);
 
     env.ledger().with_mut(|li| {
         li.sequence_number += 100;
@@ -185,7 +185,7 @@ fn test_batch_heartbeat_non_operator_rejected_in_batch() {
     let op2 = Address::generate(&env);
 
     bridge.set_operator(&op1, &true, &0);
-    bridge.set_operator(&op2, &true, &0);
+    bridge.set_operator(&op2, &true, &1);
 
     let mut items = Vec::new(&env);
     items.push_back(HeartbeatItem {
@@ -338,7 +338,7 @@ fn test_batch_heartbeat_emits_expected_events() {
     let op1 = Address::generate(&env);
     let op2 = Address::generate(&env);
     bridge.set_operator(&op1, &true, &0);
-    bridge.set_operator(&op2, &true, &0);
+    bridge.set_operator(&op2, &true, &1);
 
     let current_ledger = env.ledger().sequence();
 

@@ -82,10 +82,10 @@ fn execute_upgrade_before_timelock_fails_with_not_ready_error() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_, bridge, _, _, _, _) = setup_bridge(&env);
+    let (bridge, _admin) = setup_bridge(&env);
     let wasm_hash = BytesN::from_array(&env, &[0u8; 32]);
 
-    bridge.propose_upgrade(&wasm_hash);
+    bridge.propose_upgrade(&wasm_hash, &1u32);
     let proposal_before = bridge.get_upgrade_proposal().unwrap();
     let timing_before = bridge.get_upgrade_proposal_timing().unwrap();
 
@@ -116,7 +116,7 @@ proptest! {
 
         let (bridge, _admin) = setup_bridge(&env);
         let hash = hash_of(&env, 0xBB);
-        bridge.propose_upgrade(&hash);
+        bridge.propose_upgrade(&hash, &1u32);
 
         // Advance ledger partially, but less than MIN_UPGRADE_DELAY
         if offset > 0 {

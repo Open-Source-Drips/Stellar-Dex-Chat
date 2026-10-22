@@ -452,7 +452,8 @@ fn test_set_limit() {
     env.mock_all_auths();
 
     let (_, bridge, admin, token_addr, _, _) = setup_bridge(&env, 500);
-    bridge.set_limit(&token_addr, &1000);
+    let nonce = bridge.get_set_limit_nonce(&admin);
+    bridge.set_limit(&token_addr, &1000, &nonce);
     assert_eq!(bridge.get_limit(), 1000);
 }
 
@@ -461,9 +462,10 @@ fn test_set_limit_rejects_above_configured_max_cap() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_, bridge, _admin, token_addr, _, _) = setup_bridge(&env, 500);
+    let (_, bridge, admin, token_addr, _, _) = setup_bridge(&env, 500);
     bridge.set_limit_max_cap(&1000);
-    let result = bridge.try_set_limit(&token_addr, &1001);
+    let nonce = bridge.get_set_limit_nonce(&admin);
+    let result = bridge.try_set_limit(&token_addr, &1001, &nonce);
     assert_eq!(result, Err(Ok(Error::ExceedsLimitMaxCap)));
 }
 
@@ -472,9 +474,10 @@ fn test_set_limit_succeeds_at_max_cap_boundary() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_, bridge, _admin, token_addr, _, _) = setup_bridge(&env, 500);
+    let (_, bridge, admin, token_addr, _, _) = setup_bridge(&env, 500);
     bridge.set_limit_max_cap(&1000);
-    bridge.set_limit(&token_addr, &1000);
+    let nonce = bridge.get_set_limit_nonce(&admin);
+    bridge.set_limit(&token_addr, &1000, &nonce);
     assert_eq!(bridge.get_limit(), 1000);
 }
 
@@ -578,7 +581,8 @@ fn test_zero_amount_deposit() {
     bridge.withdraw(&admin, &admin, &600, &token_addr); // This should trip the circuit breaker
 
     // Now set_limit should be blocked
-    let set_limit_result = bridge.try_set_limit(&token_addr, &2000);
+    let nonce = bridge.get_set_limit_nonce(&admin);
+    let set_limit_result = bridge.try_set_limit(&token_addr, &2000, &nonce);
     assert_eq!(set_limit_result, Err(Ok(Error::CircuitBreakerActive)));
 }
 
@@ -3273,10 +3277,10 @@ fn test_get_receipt_by_index_preserves_order_and_bounds_invariants() {
     }
 
     for (index, expected_amount) in expected_amounts.iter().enumerate() {
-        let receipt = bridge.get_receipt_by_index(&(index as u64));
+        let receipt = bridge.get_receipt_by_index(&(index as u64)).unwrap();
         assert_eq!(receipt.amount, *expected_amount);
         assert_eq!(
-            bridge.get_receipt_by_index(&(index as u64)).amount,
+            bridge.get_receipt_by_index(&(index as u64)).unwrap().amount,
             *expected_amount
         );
     }
@@ -5006,7 +5010,7 @@ fn test_queue_admin_action_fence_post_boundary() {
     );
 
     // Verify the action was stored with correct target_ledger
-    let action = bridge.get_queued_admin_action(&id);
+    let action = bridge.get_queued_admin_action(&id).unwrap();
     assert_eq!(action.target_ledger, safe_high_ledger + MIN_TIMELOCK_DELAY);
     assert_eq!(action.queued_ledger, safe_high_ledger);
 }
@@ -5114,7 +5118,6 @@ fn test_deposit_invariant_receipt_issued_event() {
         .expect("receipt should exist");
     assert_eq!(receipt.depositor, user);
     assert_eq!(receipt.amount, 100);
-    assert!(!receipt.refunded);
 }
 
 #[test]
