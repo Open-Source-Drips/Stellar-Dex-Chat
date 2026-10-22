@@ -61,7 +61,7 @@ export const bankDetailsSchema = z.object({
       (val) => {
         if (!val || val.trim() === '') return true; // optional field
         const cleaned = val.replace(/\s+/g, '').toUpperCase();
-        // Basic format: 2 letters + 2 digits + 11-30 alphanumeric chars (total 15-34)
+       
         if (!/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(cleaned)) return false;
         return validateIbanMod97(cleaned);
       },
@@ -109,7 +109,7 @@ export interface BankDetailsModalProps {
   xlmAmount: number;
 }
 
-// Animation variants
+
 const modalVariants = {
   hidden: {
     opacity: 0,
