@@ -436,6 +436,7 @@ Repo Avatar
 - Expose optimistic beneficiary updates
 - **frontend:** Dark mode fallback in useBridgeStats + error boundary on TransactionAmountDisplay
 - Implement minimal updates for issues #714, #723, #728, #729
+- **contract:** Add register_token and get_token_config
 
 ### Fixed
 
@@ -927,6 +928,9 @@ Repo Avatar
 - Use live operator list in set_max_operators boundary check
 - Remove duplicate env import in security.ts causing webpack build failure
 - Resolve 7 compile errors in stellar-contracts
+- **contract:** Remove dead global deposit allowlist
+- **contract:** Enforce SlippageThreshold on deposit and execute_withdrawal
+- **contract:** Enforce set_operator_daily_limit on withdraw
 
 ### Changed
 
@@ -1258,6 +1262,8 @@ Repo Avatar
 - **changelog:** Update changelog [skip ci]
 - **changelog:** Update changelog [skip ci]
 - **changelog:** Update changelog [skip ci]
+- **changelog:** Update changelog [skip ci]
+- **contract:** Cover issues #1400-#1403
 
 ### Deprecated
 
