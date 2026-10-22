@@ -53,7 +53,7 @@ function rect(top: number, height: number): DOMRect {
   } as DOMRect;
 }
 
-/** Gives the banner a real height and the focused input a given viewport position. */
+
 function stubLayout(focusedTop: number) {
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
     function (this: HTMLElement) {
