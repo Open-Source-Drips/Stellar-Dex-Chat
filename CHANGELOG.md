@@ -436,6 +436,7 @@ Repo Avatar
 - Expose optimistic beneficiary updates
 - **frontend:** Dark mode fallback in useBridgeStats + error boundary on TransactionAmountDisplay
 - Implement minimal updates for issues #714, #723, #728, #729
+- **contract:** Implement emergency recovery, storage TTL bump, multisig update and escrow migration (issues 1-4)
 - **contract:** Add register_token and get_token_config
 
 ### Fixed
@@ -931,6 +932,8 @@ Repo Avatar
 - **contract:** Remove dead global deposit allowlist
 - **contract:** Enforce SlippageThreshold on deposit and execute_withdrawal
 - **contract:** Enforce set_operator_daily_limit on withdraw
+- **contract:** Token allowlist index logs grow on every call and get_token_allowlist_enabled returns stale history
+- **contract:** The circuit breaker adds withdrawal volume across tokens with different decimals
 
 ### Changed
 
@@ -1264,6 +1267,7 @@ Repo Avatar
 - **changelog:** Update changelog [skip ci]
 - **changelog:** Update changelog [skip ci]
 - **contract:** Cover issues #1400-#1403
+- **changelog:** Update changelog [skip ci]
 
 ### Deprecated
 
